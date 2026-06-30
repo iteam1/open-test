@@ -1,0 +1,59 @@
+# Idea
+
+## Scope
+
+Inspired by [open-design](https://github.com/nexu-io/open-design)'s architecture — a local daemon/app orchestrating an AI agent, with session-based workspaces and plain-file artifact storage (no database) — but intentionally **simpler**:
+
+- **Single-agent focus**: the Claude Code agent only. No multi-CLI-adapter layer for Codex/Gemini/Cursor/etc. like open-design supports.
+- **Plain-file artifacts**: every session's input/output lives as real files under its session folder (mirrors open-design's normal-artifact-as-file pattern), not rows in a database.
+- **TBD — needs a decision**: does "the Claude Code agent" mean spawning the `claude` CLI as a subprocess (stdout parsing, `--output-format stream-json`), or embedding the same agent harness in-process via the Claude Agent SDK (`query()`, `permissionMode`, JS-callback hooks)? These are different integration shapes — pick one before building the orchestration layer.
+
+## Targets
+
+- Local, cross-OS, agent-powered application for testing (like Claude Desktop but optimized for testing)
+- Use Claude Code CLI, the Playwright Test Framework, Playwright Library (scripts), Playwright CLI, and Electron under the hood
+- Able to use custom environment variables like `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL`, `ANTHROPIC_API_KEY`
+- Able to use an external MCP server for drawing annotations, hosted on the same machine
+- Able to run on the Chromium and WebKit engines, including Microsoft Edge (must, via Playwright's `msedge` channel — Edge runs on Chromium, not a separate engine); WebKit support is optional
+- Able to manage working sessions in a central place, `./sessions/`, with each session kept as a separate folder. Sessions can be force-killed or resumed, etc. Each session stores test artifacts and a `metadata.json` file with fields like `session_id` (renamable; defaults to a year-month-day-time format), `claude_session_id`, etc.
+- Able to upload test artifact inputs (`.md`, `.txt`, `.xlsx`, `.json`, `.yml`, `.yaml`), single or multiple files, up to 1 MB each
+- Able to leverage existing agent capabilities: skills, multi-agent patterns, subagents, and MCP servers (`.mcp.json`)
+- Must be able to capture screenshot evidence in headless (no address bar) or headed mode, and use the [mcp-server-paint](https://github.com/iteam1/mcp-server-paint) MCP server to draw annotations
+- Able to customize the output folder based on the skill's definition
+- Able to run multi-turn tests and manage each turn's test output artifacts
+- Support orchestration-agnostic testing: the user can upload a test plan and ask the agent to follow it, ask the agent to execute tests via prompt only, or upload a test plan first and then adjust test conditions/requirements via prompt (e.g. selecting which tests to run)
+- Support agent skills (`.claude/skills/*`) and be able to inject a new skill folder into a session
+- Support subagents (`.claude/agents/*`)
+- The agent must do its best to execute tests, but if there's a gap, it should stop and verify with the user
+- Support output: screenshots (required), video (optional), and — in the future — Playwright `trace.zip` files, finishing with a test verdict `report.md`
+- Support guardrails via `CLAUDE.md`, reinforced with hooks, to prevent harmful or malicious actions such as exhausting system resources, memory, or disk space
+
+## Prerequisites
+- bun, TypeScript
+- uv
+- Claude Code CLI
+
+## Orchestration
+- In the local app, the user creates a session
+- The session renders a UI with a chat box on the right side to interact with Claude via the Claude Agent SDK under the hood (configurable with custom `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL`, `ANTHROPIC_API_KEY`), and shows test input and output artifacts
+- Upload test artifacts (optional), or use a prompt to clarify requirements
+- The agent will inspect, study, and confirm with the user to clarify requirements
+- After that, it executes the tests — using skills, subagents, Playwright scripts, etc.
+- Write down test output and return a test verdict
+- Main components inside each session folder: `input/`, `output/`, `metadata.json`, `.claude/*`, `CLAUDE.md`. Claude Code (CLI or Agent SDK) is invoked with **`cwd` set to this session folder**, not the app's root — so project-local skills/subagents/settings under `<session>/.claude/*` and `<session>/CLAUDE.md` are picked up automatically by Claude Code's own discovery, no custom path wiring needed.
+- **Bonus, for free**: because `cwd` is the session folder, Claude Code mirrors a matching directory at `~/.claude/projects/<slugified-session-folder-path>/` (slug = the absolute path with every `/` → `-`). That directory holds `<claude_session_id>.jsonl` (the full resumable transcript), `<claude_session_id>/subagents/agent-*.jsonl`+`.meta.json` (per-subagent transcript + metadata), and `<claude_session_id>/tool-results/*.txt` (large tool outputs spilled off the main transcript). The app can read this directly — keyed by the `claude_session_id` already stored in `metadata.json` — to power resume (`--resume <id>` / `options.resume`, same `cwd`) and to surface subagent runs in the UI, without building its own transcript/subagent logger.
+- Note the two distinct `.claude` locations are not the same thing: `<session>/.claude/*` (project-local skills/agents/config, lives **inside** the session folder) vs. `~/.claude/projects/<slug>/` (Claude Code's own transcript store, lives in the **user's home directory**, merely keyed by the session folder's path).
+- Loop additional test turns if the user requires it
+- MUST be able to chat with the agent if there's a gap, to clarify
+
+## Custom Layers
+- Define cross-session configuration such as `CLAUDE.md` and `.mcp.json`
+- Support defining skills for specific testing scenarios (UI component testing, API testing, E2E testing, etc.) — meaning behavior and output artifacts can be specific to each skill
+- Able to chat with the user to run a specific requirement that differs from the original plan, etc.
+
+## Optimization
+- Use pre-written Playwright scripts (the Playwright Library) instead of Playwright MCP for execution, to avoid spending agent tokens on step-by-step browser actions
+- Use the accessibility tree for manipulation instead of the DOM
+- Use a lower-cost agent (e.g. Haiku) for reading the DOM
+- Write Playwright scripts and reuse them
+- Consider centrally defining parametrized Playwright scripts for cross-requirement testing, with a selector to choose, reuse, or combine scripts for execution — instead of spending agent tokens directly on each action

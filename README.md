@@ -10,3 +10,4 @@
 - [Bun](https://bun.com/) — fast JavaScript runtime and package manager
 - [Claude Code](https://claude.com/product/claude-code) — AI coding assistant used during development
 - [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-typescript) - The Claude Agent SDK enables you to programmatically build AI agents with Claude Code's capabilities
+- [Claude-mem](https://docs.claude-mem.ai/architecture/overview) - Architecture of Claude Mem
