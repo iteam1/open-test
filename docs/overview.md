@@ -11,7 +11,7 @@ Inspired by [open-design](https://github.com/nexu-io/open-design)'s architecture
 ## Targets
 
 - Local, cross-OS, agent-powered application for testing (like Claude Desktop but optimized for testing)
-- Use Claude Code CLI, the Playwright Test Framework, Playwright Library (scripts), Playwright CLI, and Electron under the hood
+- Use Claude Code CLI, the Playwright Test Framework, Playwright Library (scripts), Playwright Agent CLI (live agent-driven execution — see Optimization), Playwright CLI (setup/codegen), and Electron under the hood
 - Able to use custom environment variables like `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL`, `ANTHROPIC_API_KEY`
 - Able to use an external MCP server for drawing annotations, hosted on the same machine
 - Able to run on the Chromium and WebKit engines, including Microsoft Edge (must, via Playwright's `msedge` channel — Edge runs on Chromium, not a separate engine); WebKit support is optional
@@ -60,9 +60,29 @@ Save the result in `usage.json`, one entry per turn — tokens, cache numbers, c
 - Support defining skills for specific testing scenarios (UI component testing, API testing, E2E testing, etc.) — meaning behavior and output artifacts can be specific to each skill
 - Able to chat with the user to run a specific requirement that differs from the original plan, etc.
 
+## Limitation
+
+A draft prototype — Claude Agent SDK + Playwright MCP, hosted on a server — already proved the idea works, but surfaced four real limitations:
+
+1. **Too slow.** The agent reads the page and calls Playwright MCP step by step — one LLM round-trip per click/read — so every test action pays a full reasoning cost.
+2. **Too expensive.** Each MCP call adds to the context, and a test flow is many calls, so cost climbs with every step.
+   - Fix, layer 1: stop using Playwright MCP at all for execution. Since Claude Code has shell access, use the **Playwright Agent CLI** (`playwright-cli`) instead — same underlying tools, but it writes browser state to disk instead of inlining it into context. Real-world numbers: ~114K tokens per task via MCP vs. ~27K via Agent CLI, about 4x cheaper, before any caching. MCP is only the right call for agents *without* shell access (Claude Desktop, a sandboxed chat UI) — not our case.
+   - Fix, layer 2 (on top of layer 1): fewer round-trips. Run one pre-written Playwright script that does several actions in a single call, instead of one LLM decision per click. See Optimization below, and the [2026 PreAct paper](#related-to) — same idea, validated.
+3. **Too resource-heavy.** One session used 2 CPU cores and 1 GB of memory.
+   - No longer a server problem: since the fix for #4 is running locally, there's no shared server piling up sessions from many users. It's now just "how many sessions can one local machine run at once" — already covered by the guardrail bullet in Targets (prevent a session from exhausting CPU/memory/disk).
+4. **Test environment was locked to the server.** Hosted remotely, the agent could only reach what that server's network could reach — no testing against a custom/private environment (e.g. behind an AWS SSM tunnel).
+   - Fix: run locally instead. This is the actual reason this project is local-first, not just a style choice — it's required to reach arbitrary or private test environments.
+
 ## Optimization
-- Use pre-written Playwright scripts (the Playwright Library) instead of Playwright MCP for execution, to avoid spending agent tokens on step-by-step browser actions
-- Use the accessibility tree for manipulation instead of the DOM
-- Use a lower-cost agent (e.g. Haiku) for reading the DOM
+- Never use Playwright MCP for execution — Claude Code has shell access, so the **Playwright Agent CLI** does the same job for ~4x less cost (state goes to disk, not into context). MCP is for agents without shell access; that's not us.
+- On top of that: use pre-written Playwright scripts (the Playwright Library) instead of live Agent CLI step-by-step driving, whenever a matching reusable script already exists — see `contribute.md`
+- When the agent needs to inspect a page live (no reusable script yet), read the accessibility tree, not raw DOM/HTML — smaller and cheaper per read (both Playwright MCP and Agent CLI's `snapshot` command do this by default)
+- Use a lower-cost agent (e.g. Haiku) for those accessibility-tree reads, saving the expensive model for judgment calls
 - Write Playwright scripts and reuse them
 - Consider centrally defining parametrized Playwright scripts for cross-requirement testing, with a selector to choose, reuse, or combine scripts for execution — instead of spending agent tokens directly on each action
+
+## Related to
+
+- [Pre-Act: Multi-Step Planning and Reasoning Improves Acting in LLM Agents](https://arxiv.org/abs/2505.09970)
+- [PreAct: Prediction Enhances Agent's Planning Ability](https://arxiv.org/abs/2402.11534)
+- [PreAct: Computer-Using Agents that Get Faster on Repeated Tasks](https://arxiv.org/abs/2606.17929)
