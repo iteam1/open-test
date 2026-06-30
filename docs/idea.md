@@ -15,7 +15,7 @@ Inspired by [open-design](https://github.com/nexu-io/open-design)'s architecture
 - Able to use custom environment variables like `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL`, `ANTHROPIC_API_KEY`
 - Able to use an external MCP server for drawing annotations, hosted on the same machine
 - Able to run on the Chromium and WebKit engines, including Microsoft Edge (must, via Playwright's `msedge` channel — Edge runs on Chromium, not a separate engine); WebKit support is optional
-- Able to manage working sessions in a central place, `./sessions/`, with each session kept as a separate folder. Sessions can be force-killed or resumed, etc. Each session stores test artifacts and a `metadata.json` file with fields like `session_id` (renamable; defaults to a year-month-day-time format), `claude_session_id`, etc.
+- Able to manage working sessions in a central place, `./sessions/`, with each session kept as a separate folder. Sessions can be force-killed or resumed, etc. Each session stores test artifacts, a `metadata.json` file (just `session_id` — renamable, defaults to a year-month-day-time format —, `claude_session_id`, `created_at`), and a `usage.json` file (a list of usage entries, one per turn)
 - Able to upload test artifact inputs (`.md`, `.txt`, `.xlsx`, `.json`, `.yml`, `.yaml`), single or multiple files, up to 1 MB each
 - Able to leverage existing agent capabilities: skills, multi-agent patterns, subagents, and MCP servers (`.mcp.json`)
 - Must be able to capture screenshot evidence in headless (no address bar) or headed mode, and use the [mcp-server-paint](https://github.com/iteam1/mcp-server-paint) MCP server to draw annotations
@@ -40,11 +40,20 @@ Inspired by [open-design](https://github.com/nexu-io/open-design)'s architecture
 - The agent will inspect, study, and confirm with the user to clarify requirements
 - After that, it executes the tests — using skills, subagents, Playwright scripts, etc.
 - Write down test output and return a test verdict
-- Main components inside each session folder: `input/`, `output/`, `metadata.json`, `.claude/*`, `CLAUDE.md`. Claude Code (CLI or Agent SDK) is invoked with **`cwd` set to this session folder**, not the app's root — so project-local skills/subagents/settings under `<session>/.claude/*` and `<session>/CLAUDE.md` are picked up automatically by Claude Code's own discovery, no custom path wiring needed.
+- Main components inside each session folder: one shared `input/` (test artifacts uploaded for the session — re-read by every turn, not duplicated per turn), `output/turn-<n>/` (each turn gets its own output subfolder — screenshots/video/report.md — so re-running or adjusting the test doesn't clobber a prior turn's results), `metadata.json` (just `session_id`, `claude_session_id`, `created_at`), `usage.json` (one entry per turn), `.claude/*`, `CLAUDE.md`. Claude Code (CLI or Agent SDK) is invoked with **`cwd` set to this session folder**, not the app's root — so project-local skills/subagents/settings under `<session>/.claude/*` and `<session>/CLAUDE.md` are picked up automatically by Claude Code's own discovery, no custom path wiring needed.
+- Turn boundaries are derived from the session's own transcript rather than a separately invented counter: turn *n* = the *n*th user message in `<claude_session_id>.jsonl` (see below).
 - **Bonus, for free**: because `cwd` is the session folder, Claude Code mirrors a matching directory at `~/.claude/projects/<slugified-session-folder-path>/` (slug = the absolute path with every `/` → `-`). That directory holds `<claude_session_id>.jsonl` (the full resumable transcript), `<claude_session_id>/subagents/agent-*.jsonl`+`.meta.json` (per-subagent transcript + metadata), and `<claude_session_id>/tool-results/*.txt` (large tool outputs spilled off the main transcript). The app can read this directly — keyed by the `claude_session_id` already stored in `metadata.json` — to power resume (`--resume <id>` / `options.resume`, same `cwd`) and to surface subagent runs in the UI, without building its own transcript/subagent logger.
 - Note the two distinct `.claude` locations are not the same thing: `<session>/.claude/*` (project-local skills/agents/config, lives **inside** the session folder) vs. `~/.claude/projects/<slug>/` (Claude Code's own transcript store, lives in the **user's home directory**, merely keyed by the session folder's path).
 - Loop additional test turns if the user requires it
 - MUST be able to chat with the agent if there's a gap, to clarify
+
+## Usage & Cost Tracking
+
+Each `assistant` message in `<claude_session_id>.jsonl` already has a `usage` object: input tokens, output tokens, cache read tokens, cache write tokens (split into 5-minute and 1-hour), and which model made it.
+
+There's no dollar cost stored anywhere — we checked. So we calculate it ourselves: add up the tokens for a turn (every assistant message between one user message and the next, plus any subagent files used in that turn), then price them by model (input/output at full price, cache read cheaper, cache write a bit more).
+
+Save the result in `usage.json`, one entry per turn — tokens, cache numbers, cost, model — so the UI just reads it instead of recalculating every time.
 
 ## Custom Layers
 - Define cross-session configuration such as `CLAUDE.md` and `.mcp.json`
