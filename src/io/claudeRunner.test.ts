@@ -240,6 +240,82 @@ test('renameSessionTitle updates the display name listSessions returns', async (
   expect(summary?.displayName).toBe('My renamed session')
 }, 30_000)
 
+test('createSession honors a custom sessionId and stored description', async () => {
+  sessionsRootTmpDir = await mkdtemp(path.join(os.tmpdir(), 'open-test-root-'))
+  const templateDir = path.join(
+    import.meta.dir,
+    '../../assets/session-template',
+  )
+
+  const { sessionId } = await createSession(templateDir, sessionsRootTmpDir, {
+    sessionId: 'my-custom-session',
+    description: 'Checkout flow smoke test',
+  })
+  expect(sessionId).toBe('my-custom-session')
+
+  const summaries = await listSessions(sessionsRootTmpDir)
+  const summary = summaries.find((s) => s.sessionId === 'my-custom-session')
+  expect(summary?.description).toBe('Checkout flow smoke test')
+  // No SDK title yet (no turns), so the description is the display name.
+  expect(summary?.displayName).toBe('Checkout flow smoke test')
+})
+
+async function expectRejection(
+  promise: Promise<unknown>,
+  pattern: RegExp,
+): Promise<void> {
+  let message: string | null = null
+  try {
+    await promise
+  } catch (err) {
+    message = err instanceof Error ? err.message : String(err)
+  }
+  expect(message).not.toBeNull()
+  expect(message).toMatch(pattern)
+}
+
+test('createSession rejects a duplicate sessionId', async () => {
+  sessionsRootTmpDir = await mkdtemp(path.join(os.tmpdir(), 'open-test-root-'))
+  const templateDir = path.join(
+    import.meta.dir,
+    '../../assets/session-template',
+  )
+
+  await createSession(templateDir, sessionsRootTmpDir, { sessionId: 'dupe' })
+  await expectRejection(
+    createSession(templateDir, sessionsRootTmpDir, { sessionId: 'dupe' }),
+    /already exists/,
+  )
+})
+
+test('createSession rejects an unsafe sessionId (path traversal / separators)', async () => {
+  sessionsRootTmpDir = await mkdtemp(path.join(os.tmpdir(), 'open-test-root-'))
+  const templateDir = path.join(
+    import.meta.dir,
+    '../../assets/session-template',
+  )
+
+  await expectRejection(
+    createSession(templateDir, sessionsRootTmpDir, { sessionId: '../escape' }),
+    /invalid session id/i,
+  )
+  await expectRejection(
+    createSession(templateDir, sessionsRootTmpDir, { sessionId: 'a/b' }),
+    /invalid session id/i,
+  )
+})
+
+test('createSession with no options falls back to a generated id', async () => {
+  sessionsRootTmpDir = await mkdtemp(path.join(os.tmpdir(), 'open-test-root-'))
+  const templateDir = path.join(
+    import.meta.dir,
+    '../../assets/session-template',
+  )
+
+  const { sessionId } = await createSession(templateDir, sessionsRootTmpDir)
+  expect(sessionId).toMatch(/^\d{4}-\d{2}-\d{2}-\d{6}-[0-9a-f]{4}$/)
+})
+
 test('listSessions skips a malformed metadata.json instead of throwing (advisor-found bug)', async () => {
   sessionsRootTmpDir = await mkdtemp(path.join(os.tmpdir(), 'open-test-root-'))
   const templateDir = path.join(

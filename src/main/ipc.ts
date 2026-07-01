@@ -61,9 +61,14 @@ export function registerIpc(
     },
   )
 
-  ipcMain.handle('create-session', async () => {
-    return createSession(templateDir, sessionsRootDir)
-  })
+  ipcMain.handle(
+    'create-session',
+    async (_event, opts?: { sessionId?: string; description?: string }) => {
+      // createSession throws on an invalid or duplicate id; the rejection
+      // propagates through invoke() to the Dashboard modal, which shows it.
+      return createSession(templateDir, sessionsRootDir, opts ?? {})
+    },
+  )
 
   ipcMain.handle('list-sessions', async () => {
     return listSessions(sessionsRootDir)

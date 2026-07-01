@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { SessionSummary } from '../io/claudeRunner'
+import { NewSessionModal } from './NewSessionModal'
 
 type Props = {
   onOpenSession: (sessionId: string) => void
@@ -16,6 +17,7 @@ export function Dashboard({ onOpenSession }: Props) {
   const [loading, setLoading] = useState(true)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
+  const [showNewSession, setShowNewSession] = useState(false)
 
   const refresh = useCallback(async () => {
     try {
@@ -41,8 +43,15 @@ export function Dashboard({ onOpenSession }: Props) {
     })
   }, [])
 
-  async function handleCreate() {
-    const { sessionId } = await window.api.createSession()
+  // Passed to the modal — it awaits this and, if it throws (duplicate or
+  // invalid id, checked in the main process), shows the message and stays
+  // open. On success we close, refresh, and jump straight into the session.
+  async function handleCreate(opts: {
+    sessionId?: string
+    description?: string
+  }) {
+    const { sessionId } = await window.api.createSession(opts)
+    setShowNewSession(false)
     await refresh()
     onOpenSession(sessionId)
   }
@@ -75,11 +84,18 @@ export function Dashboard({ onOpenSession }: Props) {
         <button
           type="button"
           className="btn btn-primary"
-          onClick={handleCreate}
+          onClick={() => setShowNewSession(true)}
         >
           + New session
         </button>
       </div>
+
+      {showNewSession && (
+        <NewSessionModal
+          onCreate={handleCreate}
+          onCancel={() => setShowNewSession(false)}
+        />
+      )}
 
       {loading ? (
         <p style={{ color: 'var(--color-text-muted)' }}>Loading…</p>

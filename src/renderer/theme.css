@@ -261,6 +261,80 @@ button {
   margin: 0 auto;
 }
 
+/* Modal */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  width: 440px;
+  max-width: calc(100vw - 48px);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 24px;
+}
+
+.modal-title {
+  margin: 0 0 18px;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.modal-field {
+  display: block;
+  margin-bottom: 14px;
+}
+
+.modal-label {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-bottom: 5px;
+}
+
+.modal-input {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 13.5px;
+  font-family: inherit;
+}
+
+.modal-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.modal-error {
+  background: var(--status-rejected-bg);
+  color: var(--status-rejected-fg);
+  font-size: 12.5px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 14px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+
 .dashboard-header {
   display: flex;
   align-items: center;
@@ -413,12 +487,38 @@ button {
   display: flex;
 }
 
+/* Left pane's width is driven by an inline flex-basis (SessionView's drag
+   state); it neither grows nor shrinks on its own so the gutter fully
+   controls the split. The right pane takes whatever's left. */
+.pane-left {
+  flex-grow: 0;
+  flex-shrink: 0;
+  min-width: 240px;
+  display: flex;
+}
+
+.pane-right {
+  flex: 1;
+  min-width: 240px;
+  display: flex;
+}
+
+.gutter {
+  flex: 0 0 5px;
+  cursor: col-resize;
+  background: var(--color-border);
+  transition: background-color 0.12s ease;
+}
+
+.gutter:hover {
+  background: var(--color-accent);
+}
+
 .chat-pane {
-  flex: 1.4;
+  flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--color-border);
 }
 
 .chat-log {

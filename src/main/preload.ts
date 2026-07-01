@@ -1,7 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('api', {
-  createSession: () => ipcRenderer.invoke('create-session'),
+  createSession: (opts?: { sessionId?: string; description?: string }) =>
+    ipcRenderer.invoke('create-session', opts),
   listSessions: () => ipcRenderer.invoke('list-sessions'),
   renameSession: (claudeSessionId: string, title: string) =>
     ipcRenderer.invoke('rename-session', claudeSessionId, title),

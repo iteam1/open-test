@@ -5,7 +5,10 @@ export {}
 declare global {
   interface Window {
     api: {
-      createSession(): Promise<{ sessionId: string; sessionDir: string }>
+      createSession(opts?: {
+        sessionId?: string
+        description?: string
+      }): Promise<{ sessionId: string; sessionDir: string }>
       listSessions(): Promise<SessionSummary[]>
       renameSession(claudeSessionId: string, title: string): Promise<void>
       getChatLog(sessionId: string): Promise<unknown[]>

@@ -41,6 +41,7 @@ export async function createSessionFolder(
   sessionId: string,
   templateDir: string,
   sessionDir: string,
+  description = '',
 ) {
   await copySessionTemplate(templateDir, sessionDir)
   await mkdir(path.join(sessionDir, 'input'), { recursive: true })
@@ -52,6 +53,9 @@ export async function createSessionFolder(
       // not known until the SDK's first response — runTurnInFolder writes the real value in after the first turn
       claude_session_id: '',
       created_at: new Date().toISOString(),
+      // optional human-set label given at creation; used as the display name
+      // until the SDK has a customTitle/summary of its own (after a turn).
+      description,
     }),
   )
   await writeFile(path.join(sessionDir, 'usage.json'), JSON.stringify([]))
@@ -67,17 +71,54 @@ function generateSessionId(): string {
 }
 
 /**
- * Allocates a new sessionId and builds its folder under sessionsRootDir
- * (via createSessionFolder). This is the one place a new session comes
- * into existence — the Dashboard's "New session" action calls this.
+ * A session id becomes a real folder name under sessions/, so a
+ * user-supplied one has to be a plain safe slug — no path separators, no
+ * "..", nothing that could escape sessionsRootDir or collide with the OS.
+ */
+function isValidSessionId(id: string): boolean {
+  return /^[A-Za-z0-9._-]+$/.test(id) && id !== '.' && id !== '..'
+}
+
+/**
+ * Allocates a session folder under sessionsRootDir. This is the one place a
+ * new session comes into existence — the Dashboard's "New session" action
+ * calls this.
+ *
+ * opts.sessionId: optional user-chosen id. If given, it's validated as a
+ * safe slug and rejected (throws) if a folder with that id already exists —
+ * the duplicate check the Dashboard relies on. If omitted, a timestamped id
+ * is generated. opts.description: optional human label stored in
+ * metadata.json, shown as the display name until the SDK has its own title.
  */
 export async function createSession(
   templateDir: string,
   sessionsRootDir: string,
+  opts: { sessionId?: string; description?: string } = {},
 ) {
-  const sessionId = generateSessionId()
+  const requested = opts.sessionId?.trim()
+
+  let sessionId: string
+  if (requested) {
+    if (!isValidSessionId(requested)) {
+      throw new Error(
+        `Invalid session id "${requested}" — use only letters, numbers, dot, dash, underscore.`,
+      )
+    }
+    if (existsSync(path.join(sessionsRootDir, requested))) {
+      throw new Error(`A session named "${requested}" already exists.`)
+    }
+    sessionId = requested
+  } else {
+    sessionId = generateSessionId()
+  }
+
   const sessionDir = path.join(sessionsRootDir, sessionId)
-  await createSessionFolder(sessionId, templateDir, sessionDir)
+  await createSessionFolder(
+    sessionId,
+    templateDir,
+    sessionDir,
+    opts.description?.trim() || '',
+  )
   return { sessionId, sessionDir }
 }
 
@@ -88,6 +129,7 @@ export type SessionSummary = {
   status: 'idle' | 'running' | 'closed'
   path: string
   displayName: string
+  description: string
 }
 
 /**
@@ -123,8 +165,12 @@ export async function listSessions(
       if (typeof metadata.session_id !== 'string') continue
 
       const claudeSessionId = (metadata.claude_session_id as string) || ''
+      const description =
+        typeof metadata.description === 'string' ? metadata.description : ''
 
-      let displayName = metadata.session_id as string
+      // Display-name priority: the SDK's own title once it has one, else the
+      // creation-time description, else the raw session id.
+      let displayName = description || (metadata.session_id as string)
       if (claudeSessionId) {
         const info = await getSessionInfo(claudeSessionId)
         displayName = info?.customTitle ?? info?.summary ?? displayName
@@ -137,6 +183,7 @@ export async function listSessions(
         status: getStatus(metadata.session_id) ?? 'closed',
         path: sessionDir,
         displayName,
+        description,
       })
     } catch {
       continue
