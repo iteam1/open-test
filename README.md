@@ -14,7 +14,7 @@
 
 - [ ] Customize skill (~2h)
 - [ ] Setup (~2h)
-- 🔥 [ ] Test (~2h)
+- [ ] Test (~2h) 🔥
 
 **Deploy**
 
