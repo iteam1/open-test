@@ -36,7 +36,10 @@ async function makeStore(): Promise<FragmentStore> {
   return new FragmentStore(tmpDir)
 }
 
-function fragment(overrides: Partial<Fragment['meta']> = {}, code?: string): Fragment {
+function fragment(
+  overrides: Partial<Fragment['meta']> = {},
+  code?: string,
+): Fragment {
   return {
     meta: {
       name: 'read-title',
@@ -140,6 +143,79 @@ test('5.5: save_fragment rejects a fragment whose cold run fails, and writes not
   expect(result.ok).toBe(false)
   if (!result.ok) expect(result.error).toContain('Cold-run verification failed')
   expect(await store.get('broken')).toBeNull()
+}, 30_000)
+
+test('advisor #6: an invalid fragment name is rejected up front, before any browser launch', async () => {
+  const store = await makeStore()
+  const result = await saveFragment(store, browser, {
+    name: 'bad/name',
+    description: 'x',
+    scope: 'specific',
+    url_pattern: 'file://*',
+    tags: [],
+    params: [],
+    code: `export async function run() {}`,
+  })
+  expect(result.ok).toBe(false)
+  if (!result.ok) expect(result.error).toMatch(/invalid fragment name/i)
+})
+
+test('advisor #2: a common fragment needs verify_url; with it, the save succeeds', async () => {
+  const store = await makeStore()
+  const base = {
+    name: 'dismiss-banner',
+    description: 'Reads the title (stand-in for a common flow)',
+    scope: 'common' as const,
+    url_pattern: '', // broad/empty — the documented common-fragment shape
+    tags: ['common'],
+    params: [],
+    code: `export async function run(page) {\n  return await page.textContent('#title')\n}`,
+  }
+
+  // Without a concrete URL to cold-run against, it's rejected with guidance.
+  const rejected = await saveFragment(store, browser, base)
+  expect(rejected.ok).toBe(false)
+  if (!rejected.ok) expect(rejected.error).toContain('verify_url')
+
+  // With verify_url, the cold run has a page to navigate to and it saves.
+  const accepted = await saveFragment(store, browser, {
+    ...base,
+    verifyUrl: fixtureUrl,
+  })
+  expect(accepted.ok).toBe(true)
+  expect(await store.get('dismiss-banner')).not.toBeNull()
+}, 30_000)
+
+test('advisor #3: re-verifying a retired fragment resets consecutive_failures to 0', async () => {
+  const store = await makeStore()
+  // A fragment retired at the failure ceiling.
+  await store.write(
+    fragment({
+      name: 'read-title',
+      consecutive_failures: 3,
+      needs_reverification: true,
+    }),
+  )
+
+  const result = await saveFragment(
+    store,
+    browser,
+    {
+      name: 'read-title',
+      description: 'Reads the title',
+      scope: 'specific',
+      url_pattern: 'file://*',
+      tags: ['read'],
+      params: [],
+      code: `export async function run(page) {\n  return await page.textContent('#title')\n}`,
+    },
+    fixtureUrl,
+  )
+  expect(result.ok).toBe(true)
+
+  const revived = await store.get('read-title')
+  expect(revived?.meta.consecutive_failures).toBe(0) // fresh 3-strike budget, not stuck at 3
+  expect(revived?.meta.needs_reverification).toBe(false)
 }, 30_000)
 
 test('5.6: saving a near-match (same url_pattern + overlapping tags) updates in place, no new file', async () => {

@@ -1,4 +1,9 @@
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright'
+import {
+  chromium,
+  type Browser,
+  type BrowserContext,
+  type Page,
+} from 'playwright'
 
 /**
  * The one shared Playwright context per session (design.md/contribute.md):

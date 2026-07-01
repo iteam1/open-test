@@ -35,7 +35,7 @@ export function createFragmentServer(
 ): McpServerConfig {
   const matchTool = tool(
     'match_fragments',
-    'Find reusable Playwright fragments matching a URL (and optional tags). Returns a ranked, capped shortlist with each candidate\'s description and code so you can pick one to run_fragment. Deterministic — no guessing; call this before driving a test live.',
+    "Find reusable Playwright fragments matching a URL (and optional tags). Returns a ranked, capped shortlist with each candidate's description and code so you can pick one to run_fragment. Deterministic — no guessing; call this before driving a test live.",
     {
       url: z.string(),
       tags: z.array(z.string()).optional(),
@@ -69,7 +69,8 @@ export function createFragmentServer(
         args.name,
         (args.args as Record<string, unknown>) ?? {},
       )
-      if (!result.ok) return textResult(`run_fragment failed: ${result.error}`, true)
+      if (!result.ok)
+        return textResult(`run_fragment failed: ${result.error}`, true)
       return textResult(JSON.stringify({ ok: true, value: result.value }))
     },
   )
@@ -85,6 +86,12 @@ export function createFragmentServer(
       tags: z.array(z.string()),
       params: z.array(paramShape),
       code: z.string(),
+      verify_url: z
+        .string()
+        .optional()
+        .describe(
+          'Concrete URL to cold-run against. Required for a common fragment (broad/empty url_pattern); the page you just tested on. Optional for a specific fragment.',
+        ),
     },
     async (args) => {
       const input: SaveFragmentInput = {
@@ -95,9 +102,11 @@ export function createFragmentServer(
         tags: args.tags,
         params: args.params,
         code: args.code,
+        verifyUrl: args.verify_url,
       }
       const result = await saveFragment(store, browser, input)
-      if (!result.ok) return textResult(`save_fragment rejected: ${result.error}`, true)
+      if (!result.ok)
+        return textResult(`save_fragment rejected: ${result.error}`, true)
       const note = result.updated
         ? `Updated existing fragment in place.${result.reverified.length ? ` Marked for re-verification: ${result.reverified.join(', ')}.` : ''}`
         : 'Saved as a new fragment.'

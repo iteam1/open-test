@@ -1,4 +1,11 @@
-import { mkdir, readFile, readdir, rename, writeFile, rm } from 'node:fs/promises'
+import {
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  writeFile,
+  rm,
+} from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { createHash, randomBytes } from 'node:crypto'
 import path from 'node:path'
@@ -53,20 +60,29 @@ export function parseFragment(raw: string): Fragment {
   if (!fm) throw new Error('Fragment file has no YAML frontmatter block')
 
   const meta = YAML.parse(fm[1]) as FragmentMeta
-  for (const field of ['name', 'description', 'scope', 'url_pattern'] as const) {
+  for (const field of [
+    'name',
+    'description',
+    'scope',
+    'url_pattern',
+  ] as const) {
     if (typeof meta?.[field] !== 'string') {
       throw new Error(`Fragment frontmatter is missing "${field}"`)
     }
   }
   if (meta.scope !== 'specific' && meta.scope !== 'common') {
-    throw new Error(`Fragment scope must be "specific" or "common", got "${meta.scope}"`)
+    throw new Error(
+      `Fragment scope must be "specific" or "common", got "${meta.scope}"`,
+    )
   }
   meta.tags = Array.isArray(meta.tags) ? meta.tags : []
   meta.params = Array.isArray(meta.params) ? meta.params : []
   meta.use_count = typeof meta.use_count === 'number' ? meta.use_count : 0
   meta.last_used_at = meta.last_used_at ?? null
   meta.consecutive_failures =
-    typeof meta.consecutive_failures === 'number' ? meta.consecutive_failures : 0
+    typeof meta.consecutive_failures === 'number'
+      ? meta.consecutive_failures
+      : 0
   meta.needs_reverification = Boolean(meta.needs_reverification)
   // YAML parses an unquoted date (e.g. `verified_at: 2026-07-01`) as a Date.
   const verifiedAt: unknown = meta.verified_at
@@ -101,11 +117,32 @@ export function contentHash(code: string): string {
  * fragments/ dir, app-root path, independent of any session's cwd) plus the
  * content-hash .js extraction cache under <root>/.cache/.
  */
+/** A fragment name becomes a file name (`<name>.md`), so it must be a safe slug — no separators, no traversal. */
+export function isValidFragmentName(name: string): boolean {
+  return /^[A-Za-z0-9._-]+$/.test(name) && name !== '.' && name !== '..'
+}
+
 export class FragmentStore {
   constructor(readonly rootDir: string) {}
 
+  // Serializes the read-modify-write metadata operations below so two
+  // concurrent in-process tool calls can't lose each other's counter
+  // updates. The atomic temp+rename (5.8) prevents torn files; this
+  // prevents lost updates (advisor-found: the model can emit parallel
+  // tool_use blocks, so handlers aren't guaranteed serial).
+  private writeQueue: Promise<unknown> = Promise.resolve()
+
+  private serialize<T>(op: () => Promise<T>): Promise<T> {
+    const run = this.writeQueue.then(op, op)
+    this.writeQueue = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
+  }
+
   private fragmentPath(name: string): string {
-    if (!/^[A-Za-z0-9._-]+$/.test(name)) {
+    if (!isValidFragmentName(name)) {
       throw new Error(`Invalid fragment name "${name}"`)
     }
     return path.join(this.rootDir, `${name}.md`)
@@ -119,7 +156,9 @@ export class FragmentStore {
       if (!entry.endsWith('.md')) continue
       try {
         fragments.push(
-          parseFragment(await readFile(path.join(this.rootDir, entry), 'utf-8')),
+          parseFragment(
+            await readFile(path.join(this.rootDir, entry), 'utf-8'),
+          ),
         )
       } catch {
         continue // one bad file must not take down every lookup
@@ -138,9 +177,16 @@ export class FragmentStore {
    * Atomic write: temp file in the same directory, then rename — rename
    * within one filesystem is atomic, so a concurrent reader sees either the
    * old file or the new one, never a torn mix (5.8, contribute.md's
-   * concurrent-corruption fix).
+   * concurrent-corruption fix). Serialized against the other mutating
+   * methods so their read-modify-write cycles don't lose each other's
+   * updates.
    */
   async write(fragment: Fragment): Promise<void> {
+    return this.serialize(() => this.writeUnlocked(fragment))
+  }
+
+  /** The raw write, without acquiring the lock — for use inside an already-serialized op. */
+  private async writeUnlocked(fragment: Fragment): Promise<void> {
     await mkdir(this.rootDir, { recursive: true })
     const finalPath = this.fragmentPath(fragment.meta.name)
     const tempPath = `${finalPath}.${randomBytes(6).toString('hex')}.tmp`
@@ -149,29 +195,39 @@ export class FragmentStore {
   }
 
   /**
-   * Extracts a fragment's code into a real .js file keyed by content hash
-   * (5.3) — same hash, same file, so the second call is a cache hit and
-   * doesn't rewrite. `fragment:<name>` imports (5.11) resolve to the named
-   * fragment's current extraction, so composites always import their
-   * dependency's latest code.
+   * Extracts a fragment's code into a real .js file (5.3). `fragment:<name>`
+   * imports (5.11) are resolved to the dependency's own extraction FIRST,
+   * then the cache key is the hash of the fully-resolved code — not the raw
+   * text. That's what makes a composite's cache entry depend on its
+   * dependencies: when a dep's code changes, its extraction path changes,
+   * so the composite's resolved code (which embeds that path) changes, so
+   * the composite gets a new cache key and re-extracts against the new dep.
+   * Hashing the raw text instead (as a first cut did) let a composite keep
+   * running — and even pass save_fragment's verify gate against — a stale
+   * dependency, since its own text hadn't changed (advisor-found bug).
+   * Same resolved code → same file → cache hit.
    */
   async extract(fragment: Fragment): Promise<string> {
     const cacheDir = path.join(this.rootDir, '.cache')
-    const jsPath = path.join(cacheDir, `${contentHash(fragment.code)}.js`)
-    if (existsSync(jsPath)) return jsPath
 
-    await mkdir(cacheDir, { recursive: true })
+    // Resolve fragment:<name> specifiers to each dependency's current
+    // extraction path first. Serial await is fine — imports per fragment
+    // are few. This recurses, so a dep's own deps are resolved too.
     let code = fragment.code
-    // Rewrite fragment:<name> specifiers to the dependency's own extracted
-    // file. Serial await is fine — imports per fragment are few.
     const importRe = /(['"])fragment:([A-Za-z0-9._-]+)\1/g
     for (const match of [...code.matchAll(importRe)]) {
       const dep = await this.get(match[2])
       if (!dep) throw new Error(`fragment:${match[2]} does not exist`)
       const depPath = await this.extract(dep)
-      code = code.replace(match[0], JSON.stringify(depPath))
+      // Use a replacer function so a `$` in depPath isn't treated as a
+      // replacement pattern.
+      code = code.replace(match[0], () => JSON.stringify(depPath))
     }
 
+    const jsPath = path.join(cacheDir, `${contentHash(code)}.js`)
+    if (existsSync(jsPath)) return jsPath
+
+    await mkdir(cacheDir, { recursive: true })
     const tempPath = `${jsPath}.${randomBytes(6).toString('hex')}.tmp`
     await writeFile(tempPath, code)
     await rename(tempPath, jsPath)
@@ -182,8 +238,7 @@ export class FragmentStore {
   async findImporters(name: string): Promise<Fragment[]> {
     const needle = `fragment:${name}`
     return (await this.list()).filter(
-      (f) =>
-        f.code.includes(`'${needle}'`) || f.code.includes(`"${needle}"`),
+      (f) => f.code.includes(`'${needle}'`) || f.code.includes(`"${needle}"`),
     )
   }
 
@@ -193,22 +248,26 @@ export class FragmentStore {
    * longer trust its own last verification.
    */
   async markImportersForReverification(name: string): Promise<string[]> {
-    const importers = await this.findImporters(name)
-    for (const importer of importers) {
-      importer.meta.needs_reverification = true
-      await this.write(importer)
-    }
-    return importers.map((f) => f.meta.name)
+    return this.serialize(async () => {
+      const importers = await this.findImporters(name)
+      for (const importer of importers) {
+        importer.meta.needs_reverification = true
+        await this.writeUnlocked(importer)
+      }
+      return importers.map((f) => f.meta.name)
+    })
   }
 
   /** A pass resets the failure counter and bumps usage (contribute.md's run_fragment postcondition). */
   async recordRunSuccess(name: string): Promise<void> {
-    const fragment = await this.get(name)
-    if (!fragment) return
-    fragment.meta.use_count += 1
-    fragment.meta.last_used_at = new Date().toISOString()
-    fragment.meta.consecutive_failures = 0
-    await this.write(fragment)
+    return this.serialize(async () => {
+      const fragment = await this.get(name)
+      if (!fragment) return
+      fragment.meta.use_count += 1
+      fragment.meta.last_used_at = new Date().toISOString()
+      fragment.meta.consecutive_failures = 0
+      await this.writeUnlocked(fragment)
+    })
   }
 
   /**
@@ -217,17 +276,22 @@ export class FragmentStore {
    * re-run clears it (5.7).
    */
   async recordRunFailure(name: string): Promise<void> {
-    const fragment = await this.get(name)
-    if (!fragment) return
-    fragment.meta.consecutive_failures += 1
-    if (fragment.meta.consecutive_failures >= MAX_CONSECUTIVE_FAILURES) {
-      fragment.meta.needs_reverification = true
-    }
-    await this.write(fragment)
+    return this.serialize(async () => {
+      const fragment = await this.get(name)
+      if (!fragment) return
+      fragment.meta.consecutive_failures += 1
+      if (fragment.meta.consecutive_failures >= MAX_CONSECUTIVE_FAILURES) {
+        fragment.meta.needs_reverification = true
+      }
+      await this.writeUnlocked(fragment)
+    })
   }
 
   /** Drop a stale extraction so tests can prove cache behavior; harmless if absent. */
   async clearCache(): Promise<void> {
-    await rm(path.join(this.rootDir, '.cache'), { recursive: true, force: true })
+    await rm(path.join(this.rootDir, '.cache'), {
+      recursive: true,
+      force: true,
+    })
   }
 }

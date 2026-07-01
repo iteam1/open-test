@@ -1,5 +1,10 @@
 import type { Page } from 'playwright'
-import { FragmentStore, type Fragment, type FragmentMeta } from './store'
+import {
+  FragmentStore,
+  isValidFragmentName,
+  type Fragment,
+  type FragmentMeta,
+} from './store'
 import { SessionBrowser } from './browser'
 
 /** A fragment module is the JS extracted from its code fence — one `run(page, args)` export. */
@@ -8,17 +13,20 @@ type FragmentModule = {
 }
 
 async function loadRun(jsPath: string): Promise<FragmentModule['run']> {
-  // Cache-bust so an updated fragment (same name, new hash → new path) is
-  // never served from a stale module cache. Paths already differ by hash,
-  // but a re-extraction to the same path after clearCache still needs this.
-  const mod = (await import(`${jsPath}?t=${Date.now()}`)) as FragmentModule
+  // No cache-bust: the extraction path is the hash of the fully-resolved
+  // code (see store.extract), so a given path always holds identical bytes.
+  // A stale module cache would therefore return identical behavior anyway,
+  // and per-import query strings would leak a never-GC'd module each call
+  // in the long-lived main process.
+  const mod = (await import(jsPath)) as FragmentModule
   if (typeof mod.run !== 'function') {
     throw new Error(`Fragment at ${jsPath} has no exported run() function`)
   }
   return mod.run
 }
 
-export type RunResult = { ok: true; value: unknown } | { ok: false; error: string }
+export type RunResult =
+  { ok: true; value: unknown } | { ok: false; error: string }
 
 /**
  * run_fragment (5.4): extract the cached .js by content hash, execute its
@@ -48,7 +56,10 @@ export async function runFragment(
   } catch (err) {
     await store.recordRunFailure(name)
     await browser.resetContext()
-    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    }
   }
 }
 
@@ -60,11 +71,29 @@ export type SaveFragmentInput = {
   tags: string[]
   params: FragmentMeta['params']
   code: string
+  /**
+   * Concrete URL to cold-run against. Required for a `common` fragment,
+   * whose url_pattern is broad/empty and can't be navigated to — pass the
+   * real page you tested on. For a `specific` fragment it's optional: the
+   * url_pattern with its trailing `*` stripped is used when this is absent.
+   */
+  verifyUrl?: string
 }
 
 export type SaveResult =
   | { ok: true; updated: boolean; reverified: string[] }
   | { ok: false; error: string }
+
+/** A bare `scheme://` (or empty) can't be navigated — that's the case an empty/broad url_pattern strips down to. */
+function coldRunUrl(
+  input: SaveFragmentInput,
+  navigateUrl?: string,
+): string | null {
+  const candidate =
+    navigateUrl ?? input.verifyUrl ?? input.url_pattern.replace(/\*/g, '')
+  if (!candidate || /^[a-z][a-z0-9+.-]*:\/\/\/?$/i.test(candidate)) return null
+  return candidate
+}
 
 /** A near-match is the same url_pattern with at least one overlapping tag (contribute.md's 5.6 dedupe rule). */
 function findNearMatch(
@@ -101,11 +130,30 @@ export async function saveFragment(
   input: SaveFragmentInput,
   navigateUrl?: string,
 ): Promise<SaveResult> {
+  // Validate the name up front — before launching a browser — so an invalid
+  // name fails cheaply and clearly instead of after the cold run
+  // (advisor-found: it was only checked at write time, wasting a launch).
+  if (!isValidFragmentName(input.name)) {
+    return {
+      ok: false,
+      error: `Invalid fragment name "${input.name}" — use only letters, numbers, dot, dash, underscore.`,
+    }
+  }
+
+  const url = coldRunUrl(input, navigateUrl)
+  if (!url) {
+    return {
+      ok: false,
+      error:
+        'save_fragment needs a concrete URL to cold-run against. For a common fragment (broad or empty url_pattern), pass verify_url set to the page you tested on.',
+    }
+  }
+
   // 1. Cold-run verification in a throwaway isolated context.
   const context = await browser.freshContext()
   try {
     const page = await context.newPage()
-    await page.goto(navigateUrl ?? input.url_pattern.replace(/\*/g, ''))
+    await page.goto(url)
     const tempFragment: Fragment = {
       meta: freshMeta(input),
       prose: '',
@@ -145,6 +193,11 @@ export async function saveFragment(
       params: input.params,
       verified_at: today(),
       needs_reverification: false, // this fragment was just cold-verified
+      // A cold-run re-verify is a pass, so it clears the failure streak too
+      // (contribute.md: "reset the counter on a pass"). Without this, a
+      // fragment retired at 3 comes back with the counter still at 3 and
+      // re-retires on its very next single failure (advisor-found bug).
+      consecutive_failures: 0,
     }
     target.code = input.code
     await store.write(target)

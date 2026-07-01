@@ -27,6 +27,10 @@ Call `save_fragment` with:
   matched by tags (use role-based selectors so it generalizes).
 - `url_pattern`: a glob like `https://example.com/login*`. Empty/broad for
   `common` fragments.
+- `verify_url`: the concrete page you just tested on. **Required for a
+  `common` fragment** — its `url_pattern` is broad/empty and can't be
+  navigated to, so the cold run needs a real URL. Optional for a
+  `specific` fragment (the `url_pattern` with its `*` stripped is used).
 - `tags`: categories for matching, e.g. `["auth"]`.
 - `params`: the inputs the code takes, each with `name`, `type`,
   `required`, optional `default`, and `description`.

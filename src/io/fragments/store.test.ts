@@ -25,7 +25,10 @@ async function makeStore(): Promise<FragmentStore> {
   return new FragmentStore(tmpDir)
 }
 
-function fixture(overrides: Partial<Fragment['meta']> = {}, code?: string): Fragment {
+function fixture(
+  overrides: Partial<Fragment['meta']> = {},
+  code?: string,
+): Fragment {
   return {
     meta: {
       name: 'login-flow',
@@ -96,7 +99,10 @@ test('parseFragment handles the contribute.md file format', () => {
 })
 
 test('serializeFragment round-trips through parseFragment', () => {
-  const original = fixture({ use_count: 7, last_used_at: '2026-07-02T00:00:00.000Z' })
+  const original = fixture({
+    use_count: 7,
+    last_used_at: '2026-07-02T00:00:00.000Z',
+  })
   const roundTripped = parseFragment(serializeFragment(original))
   expect(roundTripped).toEqual(original)
 })
@@ -104,7 +110,9 @@ test('serializeFragment round-trips through parseFragment', () => {
 test('parseFragment rejects files missing frontmatter or the code fence', () => {
   expect(() => parseFragment('no frontmatter here')).toThrow(/frontmatter/)
   expect(() =>
-    parseFragment('---\nname: x\ndescription: d\nscope: common\nurl_pattern: ""\n---\nprose only'),
+    parseFragment(
+      '---\nname: x\ndescription: d\nscope: common\nurl_pattern: ""\n---\nprose only',
+    ),
   ).toThrow(/code fence/)
 })
 
@@ -126,9 +134,7 @@ test('5.8: two concurrent writers to the same fragment leave a valid, parseable 
 
   // Interleave many concurrent writes — under non-atomic writes this tears.
   await Promise.all(
-    Array.from({ length: 25 }, (_, i) =>
-      store.write(i % 2 === 0 ? a : b),
-    ),
+    Array.from({ length: 25 }, (_, i) => store.write(i % 2 === 0 ? a : b)),
   )
 
   const raw = await readFile(path.join(tmpDir, 'login-flow.md'), 'utf-8')
@@ -153,7 +159,10 @@ test('5.3: extract writes a .js keyed by content hash, and the 2nd call is a cac
   expect(statSync(jsPath).mtimeMs).toBe(mtimeBefore) // untouched — real cache hit
 
   // Different code, different cache entry.
-  const changed = fixture({}, 'export async function run(page) { /* changed */ }')
+  const changed = fixture(
+    {},
+    'export async function run(page) { /* changed */ }',
+  )
   const jsPath3 = await store.extract(changed)
   expect(jsPath3).not.toBe(jsPath)
 })
@@ -164,7 +173,11 @@ test('5.11: extract resolves fragment:<name> imports to the dependency extractio
   await store.write(dep)
 
   const composite = fixture(
-    { name: 'checkout-composite', url_pattern: 'https://example.com/*', tags: ['checkout'] },
+    {
+      name: 'checkout-composite',
+      url_pattern: 'https://example.com/*',
+      tags: ['checkout'],
+    },
     `import { run as login } from 'fragment:login-flow'\nexport async function run(page, args) {\n  await login(page, args)\n}`,
   )
   await store.write(composite)
@@ -174,6 +187,44 @@ test('5.11: extract resolves fragment:<name> imports to the dependency extractio
   const depPath = await store.extract(dep)
   expect(js).toContain(JSON.stringify(depPath))
   expect(js).not.toContain('fragment:login-flow')
+})
+
+test('advisor #1: a composite re-extracts against a dependency whose code changed (no stale cache)', async () => {
+  const store = await makeStore()
+  await store.write(
+    fixture({ name: 'dep' }, `export async function run(page) { return 'V1' }`),
+  )
+  const composite = fixture(
+    {
+      name: 'composite',
+      url_pattern: 'https://example.com/*',
+      tags: ['combo'],
+    },
+    `import { run as dep } from 'fragment:dep'\nexport async function run(page) { return dep(page) }`,
+  )
+  await store.write(composite)
+
+  const pathBefore = await store.extract(composite)
+  const jsBefore = await readFile(pathBefore, 'utf-8')
+
+  // Change the dependency's code. The composite's own text is unchanged.
+  await store.write(
+    fixture(
+      { name: 'dep' },
+      `export async function run(page) { return 'V2-CHANGED' }`,
+    ),
+  )
+
+  const pathAfter = await store.extract(composite)
+  // The composite must get a NEW extraction keyed on the changed dep, and
+  // its new file must import the dep's new extraction (not the old one).
+  expect(pathAfter).not.toBe(pathBefore)
+  const depPathAfter = await store.extract(
+    await store.get('dep').then((f) => f!),
+  )
+  const jsAfter = await readFile(pathAfter, 'utf-8')
+  expect(jsAfter).toContain(JSON.stringify(depPathAfter))
+  expect(jsAfter).not.toBe(jsBefore)
 })
 
 test('extract throws a named error for a fragment: import that does not exist', async () => {
@@ -211,7 +262,9 @@ test('5.7: the 3rd consecutive failure retires the fragment (needs_reverificatio
     await store.recordRunFailure('login-flow')
     const current = await store.get('login-flow')
     expect(current?.meta.consecutive_failures).toBe(i)
-    expect(current?.meta.needs_reverification).toBe(i >= MAX_CONSECUTIVE_FAILURES)
+    expect(current?.meta.needs_reverification).toBe(
+      i >= MAX_CONSECUTIVE_FAILURES,
+    )
   }
 })
 
@@ -229,7 +282,9 @@ test('5.6/5.7: markImportersForReverification cascades to fragments importing by
   const cascaded = await store.markImportersForReverification('login-flow')
 
   expect(cascaded).toEqual(['checkout-composite'])
-  expect((await store.get('checkout-composite'))?.meta.needs_reverification).toBe(true)
+  expect(
+    (await store.get('checkout-composite'))?.meta.needs_reverification,
+  ).toBe(true)
   expect((await store.get('unrelated'))?.meta.needs_reverification).toBe(false)
 })
 
@@ -247,26 +302,55 @@ test('one malformed .md file does not take down list()', async () => {
 // ---- match.ts (5.2) ----
 
 test('urlMatches: glob star, exact, and empty-pattern-matches-all', () => {
-  expect(urlMatches('https://example.com/login*', 'https://example.com/login?next=/')).toBe(true)
-  expect(urlMatches('https://example.com/login*', 'https://example.com/cart')).toBe(false)
+  expect(
+    urlMatches(
+      'https://example.com/login*',
+      'https://example.com/login?next=/',
+    ),
+  ).toBe(true)
+  expect(
+    urlMatches('https://example.com/login*', 'https://example.com/cart'),
+  ).toBe(false)
   expect(urlMatches('', 'https://anything.example')).toBe(true)
   // Regex metacharacters in the pattern are literal, not regex.
-  expect(urlMatches('https://example.com/a?b=c', 'https://example.com/a?b=c')).toBe(true)
-  expect(urlMatches('https://example.com/a?b=c', 'https://example.com/aXb=c')).toBe(false)
+  expect(
+    urlMatches('https://example.com/a?b=c', 'https://example.com/a?b=c'),
+  ).toBe(true)
+  expect(
+    urlMatches('https://example.com/a?b=c', 'https://example.com/aXb=c'),
+  ).toBe(false)
 })
 
 test('5.2: filters by URL and tags, skips needs_reverification, ranks by use_count then recency', () => {
   const fragments = [
     fixture({ name: 'retired', use_count: 99, needs_reverification: true }),
-    fixture({ name: 'popular', use_count: 10, last_used_at: '2026-01-01T00:00:00Z' }),
-    fixture({ name: 'recent', use_count: 3, last_used_at: '2026-07-01T00:00:00Z' }),
-    fixture({ name: 'tie-recent', use_count: 3, last_used_at: '2026-07-02T00:00:00Z' }),
+    fixture({
+      name: 'popular',
+      use_count: 10,
+      last_used_at: '2026-01-01T00:00:00Z',
+    }),
+    fixture({
+      name: 'recent',
+      use_count: 3,
+      last_used_at: '2026-07-01T00:00:00Z',
+    }),
+    fixture({
+      name: 'tie-recent',
+      use_count: 3,
+      last_used_at: '2026-07-02T00:00:00Z',
+    }),
     fixture({ name: 'wrong-url', url_pattern: 'https://other.example/*' }),
     fixture({ name: 'wrong-tag', tags: ['payments'] }),
   ]
 
-  const result = matchFragments(fragments, 'https://example.com/login', ['auth'])
-  expect(result.map((f) => f.meta.name)).toEqual(['popular', 'tie-recent', 'recent'])
+  const result = matchFragments(fragments, 'https://example.com/login', [
+    'auth',
+  ])
+  expect(result.map((f) => f.meta.name)).toEqual([
+    'popular',
+    'tie-recent',
+    'recent',
+  ])
 })
 
 test('5.2: scope specific always outranks common when both match, regardless of usage', () => {
@@ -280,8 +364,13 @@ test('5.2: scope specific always outranks common when both match, regardless of 
     fixture({ name: 'specific-fresh', use_count: 0 }),
   ]
 
-  const result = matchFragments(fragments, 'https://example.com/login', ['auth'])
-  expect(result.map((f) => f.meta.name)).toEqual(['specific-fresh', 'common-heavy'])
+  const result = matchFragments(fragments, 'https://example.com/login', [
+    'auth',
+  ])
+  expect(result.map((f) => f.meta.name)).toEqual([
+    'specific-fresh',
+    'common-heavy',
+  ])
 })
 
 test('5.2: shortlist is hard-capped', () => {
