@@ -15,8 +15,12 @@ declare global {
         callback: (sessionId: string, message: unknown) => void,
       ): () => void
       onStatus(
-        callback: (sessionId: string, status: string) => void,
+        callback: (
+          sessionId: string,
+          status: 'idle' | 'running' | 'closed',
+        ) => void,
       ): () => void
+      onPushRejected(callback: (sessionId: string) => void): () => void
     }
   }
 }

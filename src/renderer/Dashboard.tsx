@@ -18,9 +18,12 @@ export function Dashboard({ onOpenSession }: Props) {
   const [renameValue, setRenameValue] = useState('')
 
   const refresh = useCallback(async () => {
-    const list = await window.api.listSessions()
-    setSessions(list)
-    setLoading(false)
+    try {
+      const list = await window.api.listSessions()
+      setSessions(list)
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
   useEffect(() => {
@@ -33,11 +36,7 @@ export function Dashboard({ onOpenSession }: Props) {
   useEffect(() => {
     return window.api.onStatus((sessionId, status) => {
       setSessions((prev) =>
-        prev.map((s) =>
-          s.sessionId === sessionId
-            ? { ...s, status: status as SessionSummary['status'] }
-            : s,
-        ),
+        prev.map((s) => (s.sessionId === sessionId ? { ...s, status } : s)),
       )
     })
   }, [])
@@ -59,8 +58,14 @@ export function Dashboard({ onOpenSession }: Props) {
     if (!session.claudeSessionId || !title || title === session.displayName) {
       return
     }
-    await window.api.renameSession(session.claudeSessionId, title)
-    await refresh()
+    try {
+      await window.api.renameSession(session.claudeSessionId, title)
+      await refresh()
+    } catch {
+      // Rename failed server-side (e.g. a stale/invalid claudeSessionId) —
+      // nothing to recover client-side, but don't leave an unhandled
+      // rejection (advisor-found gap).
+    }
   }
 
   return (

@@ -25,13 +25,27 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('chunk', listener)
     return () => ipcRenderer.removeListener('chunk', listener)
   },
-  onStatus: (callback: (sessionId: string, status: string) => void) => {
+  onStatus: (
+    callback: (
+      sessionId: string,
+      status: 'idle' | 'running' | 'closed',
+    ) => void,
+  ) => {
     const listener = (
       _event: Electron.IpcRendererEvent,
       sessionId: string,
-      status: string,
+      status: 'idle' | 'running' | 'closed',
     ) => callback(sessionId, status)
     ipcRenderer.on('status', listener)
     return () => ipcRenderer.removeListener('status', listener)
+  },
+  // Separate from onStatus — a rejected push isn't a session status
+  // (advisor-found bug: reusing 'status' for it broke Dashboard/SessionView
+  // rendering, since 'rejected' isn't part of Session['status']).
+  onPushRejected: (callback: (sessionId: string) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, sessionId: string) =>
+      callback(sessionId)
+    ipcRenderer.on('push-rejected', listener)
+    return () => ipcRenderer.removeListener('push-rejected', listener)
   },
 })
