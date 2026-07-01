@@ -77,13 +77,13 @@ Tasks 1.2-1.6 are throwaway scripts in `scratch/`, not app code — the goal is 
 
 ## Phase 3 — Dashboard and navigation
 
-- **3.1** [ ] Dashboard reads `sessions/` directly (no database, no index file) via the Session manager; combines each folder's `metadata.json` with in-memory status; groups by status
+- **3.1** [x] Dashboard reads `sessions/` directly (no database, no index file) via the Session manager; combines each folder's `metadata.json` with in-memory status; groups by status
   Test: sessions in different states appear in the correct column
 
-- **3.2** [ ] Card actions: kill, resume, rename (`renameSession()`/`customTitle` — display name is never a field on `Session` itself)
+- **3.2** [x] Card actions: kill, resume, rename (`renameSession()`/`customTitle` — display name is never a field on `Session` itself)
   Test: kill moves a card to Closed; rename updates the shown name
 
-- **3.3** [ ] Chat state lives in main process keyed by `sessionId`, independent of which screen is mounted
+- **3.3** [x] Chat state lives in main process keyed by `sessionId`, independent of which screen is mounted
   Test: start a turn, navigate to Dashboard mid-stream, come back — the reply is there, not lost
 
 ## Phase 4 — Live testing (Playwright Agent CLI, no fragments yet)
