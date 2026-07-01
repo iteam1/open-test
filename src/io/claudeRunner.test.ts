@@ -10,7 +10,6 @@ import {
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { startup } from '@anthropic-ai/claude-agent-sdk'
 import {
   createSessionFolder,
   runTurn,
@@ -490,7 +489,14 @@ test('listLatestArtifacts returns turn 0 and no files for a session with no turn
   expect(result).toEqual({ turn: 0, files: [] })
 })
 
-test('6.1: options.env routes session API traffic to ANTHROPIC_BASE_URL', async () => {
+test('6.1: runTurn reads ANTHROPIC_BASE_URL from the environment and routes session traffic there', async () => {
+  sessionTmpDir = await mkdtemp(path.join(os.tmpdir(), 'open-test-'))
+  const templateDir = path.join(
+    import.meta.dir,
+    '../../assets/session-template',
+  )
+  await createSessionFolder('test-session', templateDir, sessionTmpDir)
+
   // A local listener standing in for a different API endpoint. It records
   // every request path and rejects — the point is only to prove the
   // subprocess's traffic ARRIVES here, not to serve a real reply.
@@ -509,44 +515,47 @@ test('6.1: options.env routes session API traffic to ANTHROPIC_BASE_URL', async 
     },
   })
 
-  // Drive startup()/query() directly with the same options.env spread that
-  // runTurn builds, so this proves the exact wiring without depending on a
-  // full turn completing. A rejected endpoint is treated as retryable by
-  // the CLI (it never throws and never emits a session_id, so runTurn's
-  // kill path can't interrupt it) — so we poll for the first /v1/messages
-  // hit, then stop, rather than awaiting a turn that would loop forever.
-  const warm = await startup({
-    options: {
-      cwd: os.tmpdir(),
-      env: {
-        ...process.env,
-        ANTHROPIC_BASE_URL: `http://localhost:${server.port}`,
-      },
-    },
-    initializeTimeoutMs: 20_000,
-  })
+  // Set it ONLY in process.env — exactly what Bun's .env loader does in
+  // production — and drive the real runTurn. This proves runTurn actually
+  // reads process.env and passes it via options.env, not just that the SDK
+  // honors a hand-built env. The rejecting endpoint loops on retries, so we
+  // start the turn, poll for the first /v1/messages hit, then killSession()
+  // (runTurn registered the live interrupt, and the session is 'running' via
+  // startTurn) to tear the subprocess down and end the turn.
+  const previous = process.env.ANTHROPIC_BASE_URL
+  process.env.ANTHROPIC_BASE_URL = `http://localhost:${server.port}`
+  const sessionId = 'test-session-env-routing'
+  try {
+    startTurn(sessionId)
+    const turnPromise = runTurn(
+      sessionTmpDir,
+      'Reply with the word HELLO.',
+      () => {},
+      sessionId,
+    ).catch(() => {
+      // Expected — the fake endpoint rejects / the kill interrupts.
+    })
 
-  const query = warm.query('Reply with the word HELLO.')
-  const drain = (async () => {
-    try {
-      for await (const _m of query) void _m
-    } catch {
-      // ignore — the endpoint rejects; we only care that it was reached
+    const deadline = Date.now() + 40_000
+    while (
+      !hits.some((p) => p.includes('/v1/messages')) &&
+      Date.now() < deadline
+    ) {
+      await new Promise((r) => setTimeout(r, 200))
     }
-  })()
-
-  const deadline = Date.now() + 30_000
-  while (
-    !hits.some((p) => p.includes('/v1/messages')) &&
-    Date.now() < deadline
-  ) {
-    await new Promise((r) => setTimeout(r, 200))
+    // Proof (the /v1/messages hit) is already captured. Tear down
+    // best-effort WITHOUT awaiting killSession — interrupt() can hang
+    // mid-retry-storm (it doesn't settle until the subprocess is actually
+    // torn down), and we don't want the test to block on that.
+    void killSession(sessionId).catch(() => {})
+    await Promise.race([turnPromise, new Promise((r) => setTimeout(r, 8000))])
+  } finally {
+    if (previous === undefined) delete process.env.ANTHROPIC_BASE_URL
+    else process.env.ANTHROPIC_BASE_URL = previous
+    server.stop(true)
   }
-  await query.interrupt().catch(() => {})
-  await drain.catch(() => {})
-  server.stop(true)
 
-  // The proof: the subprocess actually sent its Messages API call to OUR
-  // endpoint, i.e. options.env's ANTHROPIC_BASE_URL took effect.
+  // The proof: runTurn's subprocess sent its Messages API call to OUR
+  // endpoint, i.e. the env value flowed process.env -> options.env -> CLI.
   expect(hits.some((p) => p.includes('/v1/messages'))).toBe(true)
 }, 60_000)

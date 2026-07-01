@@ -346,11 +346,10 @@ export async function runTurn(
         // process.env with zero config, so ANTHROPIC_BASE_URL /
         // ANTHROPIC_MODEL / ANTHROPIC_API_KEY from .env land here.
         // options.env REPLACES the subprocess env entirely (per sdk.d.ts),
-        // so spread process.env to keep PATH/HOME/etc.
+        // so spread process.env to keep PATH/HOME/etc. The CLI reads
+        // ANTHROPIC_MODEL from this env itself, so we don't ALSO set
+        // options.model — that was redundant (both from the same var).
         env: { ...process.env },
-        ...(process.env.ANTHROPIC_MODEL
-          ? { model: process.env.ANTHROPIC_MODEL }
-          : {}),
         ...(resumeClaudeSessionId ? { resume: resumeClaudeSessionId } : {}),
         ...(mcpServers ? { mcpServers } : {}),
       },

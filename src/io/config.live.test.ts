@@ -112,8 +112,24 @@ test('6.3/6.4: dispatches to the a11y-reader subagent, which runs on the cheap (
     f.endsWith('.jsonl'),
   )
   expect(files.length).toBeGreaterThan(0)
-  const transcripts = await Promise.all(
-    files.map((f) => readFile(path.join(subagentsDir, f), 'utf-8')),
-  )
-  expect(transcripts.some((t) => t.includes('haiku'))).toBe(true)
+
+  // Parse each transcript and inspect the actual assistant-message `model`
+  // field — not a raw substring search, which could match "haiku" appearing
+  // anywhere (a prompt, a tool description). Only a real model id counts.
+  const models: string[] = []
+  for (const f of files) {
+    const raw = await readFile(path.join(subagentsDir, f), 'utf-8')
+    for (const line of raw.split('\n')) {
+      if (!line.trim()) continue
+      try {
+        const entry = JSON.parse(line)
+        const model = entry?.message?.model ?? entry?.model
+        if (typeof model === 'string') models.push(model)
+      } catch {
+        continue
+      }
+    }
+  }
+  expect(models.length).toBeGreaterThan(0)
+  expect(models.some((m) => m.includes('haiku'))).toBe(true)
 }, 120_000)
