@@ -1,0 +1,15 @@
+{
+  "name": "open-test",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/main/index.js",
+  "scripts": {
+    "dev": "bun build src/main/index.ts --outdir dist/main --target=node --external electron && electron dist/main/index.js"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.1",
+    "electron": "^43.0.0",
+    "typescript": "^6.0.3"
+  }
+}

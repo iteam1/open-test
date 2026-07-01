@@ -66,7 +66,12 @@ interface Session {
   // progress can't be interrupted by the idle timeout. closed only reachable
   // from idle (timeout, or explicit kill which calls interrupt() first if a
   // turn was running). Resumable from closed via a fresh streaming
-  // connection, options.resume: claudeSessionId.
+  // connection, options.resume: claudeSessionId. NOT written to metadata.json
+  // — it's runtime-only, derived from whether the app currently holds a live
+  // connection for this session in memory. Persisting it would go stale the
+  // moment the app isn't the one updating it (e.g. a crash while idle would
+  // leave idle on disk forever). No live connection in memory = closed,
+  // always, regardless of what a stale file might say.
   path: string              // absolute, == cwd for query(). Derived from root +
                             // sessionId, not itself persisted.
 }
