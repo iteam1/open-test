@@ -294,13 +294,7 @@ test('hydrateSessionFromDisk restores claudeSessionId and continues turnCount af
   expect(startTurn(sessionId)).toBe(3) // continues from 2, not restarting at 1
 })
 
-// Blocked pending a more specific authorization for permissionMode:
-// 'bypassPermissions' — tried twice, blocked twice by the harness's safety
-// classifier (self-chosen escalation, then a terse "ok allow" that didn't
-// meet the specificity bar for a change this severe), and independently
-// flagged by a code-review advisor per the comment on runTurn. Un-skip
-// once that's resolved with real specificity, not a two-word reply.
-test.skip('4.2: a live turn drives playwright-cli via Bash and saves a real screenshot into output/turn-n/', async () => {
+test('4.2: a live turn drives playwright-cli via Bash and saves a real screenshot into output/turn-n/', async () => {
   sessionTmpDir = await mkdtemp(path.join(os.tmpdir(), 'open-test-'))
   const templateDir = path.join(
     import.meta.dir,
@@ -334,6 +328,31 @@ test.skip('4.2: a live turn drives playwright-cli via Bash and saves a real scre
   expect(existsSync(screenshotPath)).toBe(true)
   const contents = await readFile(screenshotPath)
   expect(contents.length).toBeGreaterThan(0)
+}, 120_000)
+
+test('4.4: a live turn writes a readable report.md verdict into output/turn-n/', async () => {
+  sessionTmpDir = await mkdtemp(path.join(os.tmpdir(), 'open-test-'))
+  const templateDir = path.join(
+    import.meta.dir,
+    '../../assets/session-template',
+  )
+  await createSessionFolder('test-session', templateDir, sessionTmpDir)
+
+  await runTurnInFolder(
+    sessionTmpDir,
+    1,
+    'This is a trivial test: 2 + 2 should equal 4. Decide whether it passes, ' +
+      'then use the Write tool to save your verdict as a markdown file at ' +
+      'output/turn-1/report.md. Include the word PASS or FAIL in it.',
+    () => {},
+    'test-session-report-verdict',
+  )
+
+  const reportPath = path.join(sessionTmpDir, 'output', 'turn-1', 'report.md')
+  expect(existsSync(reportPath)).toBe(true)
+  const report = await readFile(reportPath, 'utf-8')
+  expect(report.length).toBeGreaterThan(0)
+  expect(/pass|fail/i.test(report)).toBe(true)
 }, 120_000)
 
 test('listLatestArtifacts finds the highest-numbered turn folder and lists its files', async () => {
