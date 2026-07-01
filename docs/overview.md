@@ -6,12 +6,12 @@ Inspired by [open-design](https://github.com/nexu-io/open-design)'s architecture
 
 - **Single-agent focus**: the Claude Code agent only. No multi-CLI-adapter layer for Codex/Gemini/Cursor/etc. like open-design supports.
 - **Plain-file artifacts**: every session's input/output lives as real files under its session folder (mirrors open-design's normal-artifact-as-file pattern), not rows in a database.
-- **TBD — needs a decision**: does "the Claude Code agent" mean spawning the `claude` CLI as a subprocess (stdout parsing, `--output-format stream-json`), or embedding the same agent harness in-process via the Claude Agent SDK (`query()`, `permissionMode`, JS-callback hooks)? These are different integration shapes — pick one before building the orchestration layer.
+- **Decided: use the Claude Agent SDK's `query()`.** Verified against the SDK's own source/CHANGELOG: both raw CLI and the SDK spawn the same native `claude` binary as a subprocess — there's no in-process, no-subprocess option. The real difference is who manages that subprocess: raw CLI means we parse stdout ourselves; `query()` means the SDK manages the subprocess and hands back typed events, plus `resume`, `permissionMode`, and JS-callback `hooks` as real options. A prior "session class" (`SDKSession`) existed but was removed — `query()` alone now handles multi-turn (`options.resume`, or an `AsyncIterable` of messages).
 
 ## Targets
 
 - Local, cross-OS, agent-powered application for testing (like Claude Desktop but optimized for testing)
-- Use Claude Code CLI, the Playwright Test Framework, Playwright Library (scripts), Playwright Agent CLI (live agent-driven execution — see Optimization), Playwright CLI (setup/codegen), and Electron under the hood
+- Use the Claude Agent SDK, the Playwright Test Framework, Playwright Library (scripts), Playwright Agent CLI (live agent-driven execution — see Optimization), Playwright CLI (setup/codegen), and Electron under the hood
 - Able to use custom environment variables like `ANTHROPIC_BASE_URL`, `ANTHROPIC_MODEL`, `ANTHROPIC_API_KEY`
 - Able to use an external MCP server for drawing annotations, hosted on the same machine
 - Able to run on the Chromium and WebKit engines, including Microsoft Edge (must, via Playwright's `msedge` channel — Edge runs on Chromium, not a separate engine); WebKit support is optional
@@ -31,7 +31,7 @@ Inspired by [open-design](https://github.com/nexu-io/open-design)'s architecture
 ## Prerequisites
 - bun, TypeScript
 - uv
-- Claude Code CLI
+- Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`) — the CLI binary is still the engine underneath; the SDK just spawns and talks to it for us, so we don't install or invoke it by hand.
 
 ## Orchestration
 - In the local app, the user creates a session
@@ -40,9 +40,9 @@ Inspired by [open-design](https://github.com/nexu-io/open-design)'s architecture
 - The agent will inspect, study, and confirm with the user to clarify requirements
 - After that, it executes the tests — using skills, subagents, Playwright scripts, etc.
 - Write down test output and return a test verdict
-- Main components inside each session folder: one shared `input/` (test artifacts uploaded for the session — re-read by every turn, not duplicated per turn), `output/turn-<n>/` (each turn gets its own output subfolder — screenshots/video/report.md — so re-running or adjusting the test doesn't clobber a prior turn's results), `metadata.json` (just `session_id`, `claude_session_id`, `created_at`), `usage.json` (one entry per turn), `.claude/*`, `CLAUDE.md`. Claude Code (CLI or Agent SDK) is invoked with **`cwd` set to this session folder**, not the app's root — so project-local skills/subagents/settings under `<session>/.claude/*` and `<session>/CLAUDE.md` are picked up automatically by Claude Code's own discovery, no custom path wiring needed.
+- Main components inside each session folder: one shared `input/` (test artifacts uploaded for the session — re-read by every turn, not duplicated per turn), `output/turn-<n>/` (each turn gets its own output subfolder — screenshots/video/report.md — so re-running or adjusting the test doesn't clobber a prior turn's results), `metadata.json` (just `session_id`, `claude_session_id`, `created_at`), `usage.json` (one entry per turn), `.claude/*`, `CLAUDE.md`. The Claude Agent SDK's `query()` is invoked with **`cwd` set to this session folder**, not the app's root — so project-local skills/subagents/settings under `<session>/.claude/*` and `<session>/CLAUDE.md` are picked up automatically by Claude Code's own discovery, no custom path wiring needed.
 - Turn boundaries are derived from the session's own transcript rather than a separately invented counter: turn *n* = the *n*th user message in `<claude_session_id>.jsonl` (see below).
-- **Bonus, for free**: because `cwd` is the session folder, Claude Code mirrors a matching directory at `~/.claude/projects/<slugified-session-folder-path>/` (slug = the absolute path with every `/` → `-`). That directory holds `<claude_session_id>.jsonl` (the full resumable transcript), `<claude_session_id>/subagents/agent-*.jsonl`+`.meta.json` (per-subagent transcript + metadata), and `<claude_session_id>/tool-results/*.txt` (large tool outputs spilled off the main transcript). The app can read this directly — keyed by the `claude_session_id` already stored in `metadata.json` — to power resume (`--resume <id>` / `options.resume`, same `cwd`) and to surface subagent runs in the UI, without building its own transcript/subagent logger.
+- **Bonus, for free**: because `cwd` is the session folder, Claude Code mirrors a matching directory at `~/.claude/projects/<slugified-session-folder-path>/` (slug = the absolute path with every `/` → `-`). That directory holds `<claude_session_id>.jsonl` (the full resumable transcript), `<claude_session_id>/subagents/agent-*.jsonl`+`.meta.json` (per-subagent transcript + metadata), and `<claude_session_id>/tool-results/*.txt` (large tool outputs spilled off the main transcript). The app can read this directly — keyed by the `claude_session_id` already stored in `metadata.json` — to power resume (`options.resume`, same `cwd`) and to surface subagent runs in the UI, without building its own transcript/subagent logger.
 - Note the two distinct `.claude` locations are not the same thing: `<session>/.claude/*` (project-local skills/agents/config, lives **inside** the session folder) vs. `~/.claude/projects/<slug>/` (Claude Code's own transcript store, lives in the **user's home directory**, merely keyed by the session folder's path).
 - Loop additional test turns if the user requires it
 - MUST be able to chat with the agent if there's a gap, to clarify

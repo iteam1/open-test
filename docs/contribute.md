@@ -77,6 +77,33 @@ export async function run(page, { username, password, remember_me = false }) {
 - Write: after a live run passes the verify gate.
 - Read: pre-filter → shortlist (~10) → agent picks → extract → run.
 
+Main workflow (per turn):
+
+```mermaid
+flowchart LR
+    A[Test request] --> B[Pre-filter: url_pattern/tags]
+    B --> C{Match found?}
+    C -->|Yes| D[Agent picks fragment]
+    D --> E[Extract .js, cached by hash]
+    E --> F[Run fragment]
+    F --> G{Precondition passes?}
+    G -->|Yes| H[Result]
+    G -->|No| I[Fall back: live Agent CLI]
+    C -->|No| I
+    I --> H
+```
+
+Write path (how a fragment gets accumulated):
+
+```mermaid
+flowchart LR
+    A[Live run succeeds] --> B[Re-run from clean]
+    B --> C{Reproduces result?}
+    C -->|Yes| D[Write new .md fragment]
+    D --> E[./fragments/]
+    C -->|No| F[Discard — flaky, don't save]
+```
+
 **Avoid overhead:**
 - Only fragment recurring steps, not one-offs.
 - Track `consecutive_failures`; retire after 3 until re-verified.
@@ -92,6 +119,17 @@ export async function run(page, { username, password, remember_me = false }) {
 - Glue script imports fragments by name, calls them in sequence.
 - Save the composite as its own fragment too.
 - Frequently-run composites graduate to `@playwright/test` — free trace.zip, retries, parallel runs.
+
+```mermaid
+flowchart LR
+    A[login-flow.md] --> D[Glue script imports by name]
+    B[add-to-cart.md] --> D
+    C[checkout-flow.md] --> D
+    D --> E[Run composite in sequence]
+    E --> F{Passes verify gate?}
+    F -->|Yes| G[Save composite as new fragment]
+    F -->|No| H[Discard]
+```
 
 ## Self-review
 

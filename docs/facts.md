@@ -26,7 +26,7 @@ Reference glossary for terms researched while shaping `overview.md`. Format: `[t
 
 - [Claude Code](https://claude.com/product/claude-code) - terminal agentic coding CLI. Embedded by spawning it as a subprocess (`claude -p "..." --output-format stream-json`). Has its own session/transcript storage, skills (`.claude/skills/`), subagents (`.claude/agents/`), hooks, MCP support.
 
-- [Claude Agent SDK (TypeScript)](https://github.com/anthropics/claude-agent-sdk-typescript) - embeds the same agent harness as Claude Code, in-process, no subprocess: `for await (m of query({...}))`. Has `permissionMode`, JS-callback `hooks`, `resume`. Still respects `CLAUDE.md`/`.claude/skills` on disk. CLI-subprocess vs. this is open-test's still-open architecture decision (see overview.md Scope).
+- [Claude Agent SDK (TypeScript)](https://github.com/anthropics/claude-agent-sdk-typescript) - `for await (m of query({...}))`. Verified in the SDK's own CHANGELOG: it spawns the same native `claude` binary as a subprocess (`options.pathToClaudeCodeExecutable`, `startup()` to pre-warm it) — not in-process. The win over raw CLI isn't "no subprocess," it's that the SDK manages that subprocess and hands back typed events instead of raw stdout to parse yourself, plus `permissionMode`, JS-callback `hooks`, and `resume` as real options. A former session class (`SDKSession`, via `unstable_v2_createSession`) was removed — `query()` alone now covers multi-turn. Still respects `CLAUDE.md`/`.claude/skills` on disk. open-test's chosen integration (see overview.md Scope).
 
 - [Anthropic SDK (raw)](https://github.com/anthropics/anthropic-sdk-typescript) - `@anthropic-ai/sdk`. Just the Messages API HTTP client (`client.messages.create()`). No agent loop, no tool execution, no permissions — you build all of that yourself. Not what open-test uses, since Claude Code/Agent SDK already provide the loop.
 
@@ -36,8 +36,7 @@ Reference glossary for terms researched while shaping `overview.md`. Format: `[t
 
 - [Electron](https://www.electronjs.org/docs/latest/) - cross-platform desktop shell (Chromium + Node in one binary). Main process (Node, owns windows/lifecycle) vs. renderer process (sandboxed, no direct Node access), bridged via `contextBridge`. `loadURL('http://localhost:<port>')` is how it points at a local daemon/web UI — open-test's planned pattern.
 
-- [Bun](https://bun.com/docs) - single-binary JS/TS runtime (JavaScriptCore, not V8) + package manager + bundler + test runner. `bun install` is much faster than npm/
-pnpm; runs `.ts` directly (transpiles, doesn't type-check). Risk: node-gyp-compiled native addons don't work under Bun's engine — fine for tooling/daemon use, risky if relied on inside Electron's own (Node-based) process.
+- [Bun](https://bun.com/docs) - single-binary JS/TS runtime (JavaScriptCore, not V8) + package manager + bundler + test runner. `bun install` is much faster than npm/pnpm; runs `.ts` directly (transpiles, doesn't type-check). Risk: node-gyp-compiled native addons don't work under Bun's engine — fine for tooling/daemon use, risky if relied on inside Electron's own (Node-based) process.
 
 - [uv](https://github.com/astral-sh/uv) - fast (10-100x) Python package/project manager, written in Rust; replaces pip/pipx/poetry/pyenv/virtualenv. In open-test, this is the prerequisite needed specifically to run `mcp-server-paint` (a Python MCP server) via `uv run`.
 
