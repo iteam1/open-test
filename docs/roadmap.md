@@ -57,7 +57,7 @@ Tasks 1.2-1.6 are throwaway scripts in `scratch/`, not app code — the goal is 
 - **2.1b** [x] Session manager copies `assets/session-template/` (from 2.1a) wholesale into every new session folder, plus creates `input/`, an empty `output/`, `metadata.json` (`session_id`, `claude_session_id`, `created_at`), and an empty `usage.json` (`[]`)
   Test: a new session's folder has all of the above, correctly copied/created
 
-- **2.2** [ ] Wire 1.2-1.5's mechanism with `cwd` set to the session folder; `startup()` pre-warms it
+- **2.2** [x] Wire 1.2-1.5's mechanism with `cwd` set to the session folder; `startup()` pre-warms it
   Test: after running, `~/.claude/projects/<slugified-path>/` exists with a matching `.jsonl` — confirms the "bonus for free" claim from `overview.md` for real
 
 - **2.3** [ ] Wire 1.6's fake-chunk IPC channel to real streamed reply chunks from 2.2
