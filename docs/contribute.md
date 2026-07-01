@@ -71,14 +71,14 @@ export async function run(page, { username, password, remember_me = false }) {
 ````
 
 - Frontmatter → filter, no LLM. Also the param contract.
-- Prose → agent picks among the shortlist.
-- Code → extracted to a real `.js` file on demand, cached by content hash.
+- Prose → agent reads it, picks among the shortlist.
+- Code → agent reads it too, before picking. Cheap: input tokens run ~5x cheaper than output, so showing it costs little next to what this whole scheme actually avoids — live, per-action agent round trips. Then extracted to a real `.js` file on demand, cached by content hash, for `run_fragment` to execute.
 
 **Three tools, defined with `tool()`, bundled into one `createSdkMcpServer({ name: 'fragments', tools: [...] })`:**
 
 | Tool | Does | Owns |
 |---|---|---|
-| `match_fragments(url, tags?)` | Pre-filter + rank by `use_count`/`last_used_at` + hard-cap (~5-10) | Deterministic, no LLM |
+| `match_fragments(url, tags?)` | Pre-filter + rank by `use_count`/`last_used_at` + hard-cap (~5-10), return each candidate's description and code | Filter/rank is deterministic, no LLM. Picking one from the shortlist is Claude's call, reading description + code. |
 | `run_fragment(name, args)` | Extract cached `.js` (by content hash), execute, return result | On fail: increments `consecutive_failures`. On pass: resets it, bumps `use_count`/`last_used_at`. In-process — same event loop as the app, no cross-process races. |
 | `save_fragment(name, description, scope, url_pattern, tags, params, code)` | Launches its own fresh browser, navigates to `url_pattern`, then runs `code` once — from a cold start, nothing carried over from Claude's discovery run. Fails → rejects the save. Passes → writes the `.md`. | Mechanical, not a hope Claude followed the skill. Also a soundness check: a fragment that only works right after some *other* undeclared fragment ran first isn't a reusable fragment — cold-start correctly rejects it. If a dependency's hash changed, marks every fragment that imports it `needs_reverification`. |
 
@@ -159,3 +159,4 @@ flowchart LR
 - Gap: `consecutive_failures` can't tell "app changed" from "flaked once." Fix: same `needs_reverification` recheck — reset on pass, retire on repeat fail.
 - A fragment that fails at run time falls back to live execution in the same turn.
 - `common` fragments will fail more than `specific` ones. Acceptable — failures are caught, not silent, and self-correct via retirement.
+- Code shown to the agent is a cheap sanity check, not proof: reading `page.click('#submit')` can't tell you `#submit` still exists on today's live page. That's still only provable by running it — the precondition assert and `save_fragment`'s cold-run gate remain the real verification, code-reading doesn't replace them.

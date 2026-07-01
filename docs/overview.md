@@ -51,7 +51,7 @@ Inspired by [open-design](https://github.com/nexu-io/open-design)'s architecture
 
 Each `assistant` message in `<claude_session_id>.jsonl` already has a `usage` object: input tokens, output tokens, cache read tokens, cache write tokens (split into 5-minute and 1-hour), and which model made it.
 
-There's no dollar cost stored anywhere — we checked. So we calculate it ourselves: add up the tokens for a turn (every assistant message between one user message and the next, plus any subagent files used in that turn), then price them by model (input/output at full price, cache read cheaper, cache write a bit more).
+There's no dollar cost in the transcript itself — we checked several real `.jsonl` files, no cost field on any line. The SDK does expose one: `query()`'s returned `Query` object has `usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET()` (added in CHANGELOG `0.3.169`), returning structured session cost. But it's explicitly experimental — its own name says not to rely on it — so we still calculate cost ourselves: add up the tokens for a turn (every assistant message between one user message and the next, plus any subagent files used in that turn), then price them by model (input/output at full price, cache read cheaper, cache write a bit more).
 
 Save the result in `usage.json`, one entry per turn — tokens, cache numbers, cost, model — so the UI just reads it instead of recalculating every time.
 
