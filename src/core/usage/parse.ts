@@ -46,6 +46,47 @@ export function dedupeByMessageId<T extends { message: unknown }>(
 }
 
 /**
+ * True only for a genuine human-sent turn boundary, not a tool-result entry
+ * — getSessionMessages()'s reconstructed transcript emits type: 'user' for
+ * both a real pushed message and a tool_result. This app only ever pushes
+ * plain-string content (see claudeRunner.ts's messages() generator);
+ * tool_result entries always carry an array of content blocks instead, so
+ * that's a safe discriminator without guessing at undocumented fields.
+ */
+function isHumanTurnStart(message: {
+  type: string
+  message: unknown
+}): boolean {
+  if (message.type !== 'user') return false
+  const content = (message.message as { content?: unknown } | null)?.content
+  return typeof content === 'string'
+}
+
+/**
+ * Slices a full getSessionMessages() transcript down to exactly this turn's
+ * assistant messages, deduped by message.id (1.5's finding). Turn n = the
+ * messages between the nth and (n+1)th human turn boundary (or the end, if
+ * this is the latest turn) — not the nth type:'user' entry, since a tool
+ * call mid-turn also produces a type:'user' entry (its tool_result) that
+ * isn't a new turn; slicing on that would misattribute usage across turns
+ * for any turn that uses a tool.
+ */
+export function sliceMessagesForTurn<
+  T extends { type: string; message: unknown },
+>(allMessages: T[], turnNumber: number): T[] {
+  const turnBoundaries = allMessages
+    .map((m, i) => (isHumanTurnStart(m) ? i : -1))
+    .filter((i) => i !== -1)
+
+  const turnStart = turnBoundaries[turnNumber - 1] ?? 0
+  const turnEnd = turnBoundaries[turnNumber] ?? allMessages.length
+
+  return dedupeByMessageId(
+    allMessages.slice(turnStart, turnEnd).filter((m) => m.type === 'assistant'),
+  )
+}
+
+/**
  * Sums token counts across every usage object handed in (main transcript +
  * any subagent files folded in by the caller) and prices the total by
  * model. Caller is responsible for already having deduped and sliced to

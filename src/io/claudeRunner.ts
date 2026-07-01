@@ -13,7 +13,7 @@ import {
   getClaudeSessionId,
 } from '../core/session/session'
 import {
-  dedupeByMessageId,
+  sliceMessagesForTurn,
   computeTurnUsage,
   RawUsage,
 } from '../core/usage/parse'
@@ -161,10 +161,12 @@ async function readRawUsagesFromJsonl(filePath: string): Promise<RawUsage[]> {
 
 /**
  * Reads this turn's messages back from the SDK's own transcript
- * (getSessionMessages), dedupes by message.id (1.5's finding), folds in
- * token usage from any subagentJsonlPaths spawned during this turn (per
- * overview.md), prices the total, and appends one TurnUsage entry to
- * usage.json (created empty by createSessionFolder in 2.1b).
+ * (getSessionMessages), slices out exactly this turn's assistant messages
+ * (sliceMessagesForTurn — correctly skips tool_result entries, which are
+ * also type:'user' but aren't a new turn), folds in token usage from any
+ * subagentJsonlPaths spawned during this turn (per overview.md), prices the
+ * total, and appends one TurnUsage entry to usage.json (created empty by
+ * createSessionFolder in 2.1b).
  */
 export async function recordTurnUsage(
   sessionDir: string,
@@ -174,15 +176,7 @@ export async function recordTurnUsage(
   subagentJsonlPaths: string[],
 ) {
   const allMessages = await getSessionMessages(claudeSessionId)
-  const userIndices = allMessages
-    .map((m, i) => (m.type === 'user' ? i : -1))
-    .filter((i) => i !== -1)
-
-  const turnStart = userIndices[turnNumber - 1] ?? 0
-  const turnEnd = userIndices[turnNumber] ?? allMessages.length
-  const turnMessages = dedupeByMessageId(
-    allMessages.slice(turnStart, turnEnd).filter((m) => m.type === 'assistant'),
-  )
+  const turnMessages = sliceMessagesForTurn(allMessages, turnNumber)
 
   const mainUsages = turnMessages
     .map((m) => (m.message as { usage?: RawUsage }).usage)
@@ -216,9 +210,14 @@ export async function recordTurnUsage(
  * Creates output/turn-<n>/ for this turn, runs it (resuming prior context
  * via session.ts's stored claudeSessionId whenever one's already known),
  * then records the real claudeSessionId into metadata.json and this turn's
- * usage into usage.json. Caller must already have called session.startTurn
- * and gotten a real turn number back (not false) before calling this —
- * this function doesn't check status or reject anything itself.
+ * usage into usage.json. This bookkeeping runs in a finally block — even a
+ * turn that throws (e.g. an interrupt, per 1.4's finding) may have already
+ * spent real tokens, and those still need to land in usage.json instead of
+ * silently vanishing. Re-throws the original error afterward so the caller
+ * (ipc.ts) still sees the failure. Caller must already have called
+ * session.startTurn and gotten a real turn number back (not false) before
+ * calling this — this function doesn't check status or reject anything
+ * itself.
  */
 export async function runTurnInFolder(
   sessionDir: string,
@@ -237,26 +236,34 @@ export async function runTurnInFolder(
     ? await listSubagentFiles(claudeSessionIdBefore, sessionDir)
     : []
 
-  await runTurn(sessionDir, prompt, onMessage, sessionId, claudeSessionIdBefore)
+  try {
+    await runTurn(
+      sessionDir,
+      prompt,
+      onMessage,
+      sessionId,
+      claudeSessionIdBefore,
+    )
+  } finally {
+    const claudeSessionId = getClaudeSessionId(sessionId)
+    if (claudeSessionId) {
+      await updateMetadataClaudeSessionId(sessionDir, claudeSessionId)
 
-  const claudeSessionId = getClaudeSessionId(sessionId)
-  if (!claudeSessionId) return
+      const subagentFilesAfter = await listSubagentFiles(
+        claudeSessionId,
+        sessionDir,
+      )
+      const newSubagentFiles = subagentFilesAfter.filter(
+        (f) => !subagentFilesBefore.includes(f),
+      )
 
-  await updateMetadataClaudeSessionId(sessionDir, claudeSessionId)
-
-  const subagentFilesAfter = await listSubagentFiles(
-    claudeSessionId,
-    sessionDir,
-  )
-  const newSubagentFiles = subagentFilesAfter.filter(
-    (f) => !subagentFilesBefore.includes(f),
-  )
-
-  await recordTurnUsage(
-    sessionDir,
-    claudeSessionId,
-    turnNumber,
-    startedAt,
-    newSubagentFiles,
-  )
+      await recordTurnUsage(
+        sessionDir,
+        claudeSessionId,
+        turnNumber,
+        startedAt,
+        newSubagentFiles,
+      )
+    }
+  }
 }
