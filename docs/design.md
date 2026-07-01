@@ -42,8 +42,7 @@ open-test/
 │   │   ├── session/
 │   │   │   └── session.ts   # status transitions, idle-timeout gating
 │   │   └── usage/
-│   │       ├── parse.ts   # SessionMessage -> TurnUsage
-│   │       └── pricing.ts   # model rate table
+│   │       └── parse.ts   # SessionMessage -> TurnUsage (token breakdown; cost comes from the SDK's total_cost_usd, no rate table)
 │   └── io/   # touches fs/subprocess — integration-tested, not unit
 │       ├── claudeRunner.ts   # streaming query(); copies assets/session-template/* into <session>/ on creation; if the fragment flag is on, also merges fragments/server.ts into options.mcpServers
 │       └── fragments/
