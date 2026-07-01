@@ -92,6 +92,21 @@ export function ChatPane({ sessionId, status }: Props) {
         event.preventDefault()
         const prompt = input.trim()
         if (!prompt) return
+        // Optimistically show the user's own message right away. The SDK
+        // stream only yields the assistant's reply, never echoes the input
+        // back — and ipc.ts only appends the user message to the main-
+        // process chat log (for re-hydration on remount). So without this,
+        // your own message stays invisible live until you navigate away and
+        // back. On a later remount, state resets and hydration re-reads it
+        // from the log, so this optimistic copy doesn't double up.
+        setMessages((prev) => [
+          ...prev,
+          {
+            role: 'user',
+            text: prompt,
+            key: `u-${Date.now()}-${Math.random()}`,
+          },
+        ])
         window.api.sendMessage(sessionId, prompt)
         setInput('')
       },
