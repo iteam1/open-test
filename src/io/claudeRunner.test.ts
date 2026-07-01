@@ -78,7 +78,7 @@ test('runTurn sets cwd so Claude Code mirrors the transcript under ~/.claude/pro
 
   const files = await readdir(projectDir)
   expect(files.some((f) => f.endsWith('.jsonl'))).toBe(true)
-}, 30_000)
+}, 60_000)
 
 test('runTurnInFolder creates output/turn-<n>/ as soon as the turn starts, not after it finishes', async () => {
   sessionTmpDir = await mkdtemp(path.join(os.tmpdir(), 'open-test-'))
@@ -102,7 +102,7 @@ test('runTurnInFolder creates output/turn-<n>/ as soon as the turn starts, not a
   expect(existsSync(path.join(sessionTmpDir, 'output', 'turn-1'))).toBe(true)
 
   await turnPromise
-}, 30_000)
+}, 60_000)
 
 test('runTurnInFolder records the real claudeSessionId and appends real usage after one turn', async () => {
   sessionTmpDir = await mkdtemp(path.join(os.tmpdir(), 'open-test-'))
@@ -134,7 +134,7 @@ test('runTurnInFolder records the real claudeSessionId and appends real usage af
   expect(usage[0].outputTokens).toBeGreaterThan(0)
   expect(usage[0].costUsd).toBeGreaterThan(0)
   expect(typeof usage[0].model).toBe('string')
-}, 30_000)
+}, 60_000)
 
 test('2.7: a closed session resumes with full context on the next push', async () => {
   sessionTmpDir = await mkdtemp(path.join(os.tmpdir(), 'open-test-'))
