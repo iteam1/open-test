@@ -16,51 +16,42 @@ Stack: Bun, TypeScript, Electron, Playwright (Agent CLI for live execution; Libr
 
 ```
 open-test/
-  assets/
-    session-template/        # committed: copied wholesale into <session>/ before
-                              # spawning query() for that session
-      .claude/
-        skills/
-          fragment-lookup/SKILL.md
-          fragment-learn/SKILL.md
-          fragment-combine/SKILL.md
-        commands/             # room to grow; empty for now
-      CLAUDE.md                # testing guardrails for sessions — NOT this
-                                # repo's own /CLAUDE.md, a completely different
-                                # thing with a completely different audience
-      .mcp.json                 # real external servers only, e.g. mcp-server-paint —
-                                 # the in-process fragment server can't go here
-    starter-pack/               # committed: pre-verified common fragments, read-only
-  src/
-    main/
-      index.ts
-      window.ts
-      ipc.ts               # contextBridge — streamed events, keyed by sessionId,
-                            # independent of which renderer screen is mounted
-    renderer/               # UI only, no Node/fs access
-      App.tsx               # routes between the two screens below
-      Dashboard.tsx         # screen 1: sessions grouped by status, new/resume/kill
-      SessionView.tsx       # screen 2: ChatPane (left) + ArtifactView (right)
-      ChatPane.tsx          # re-hydrates from main on mount, doesn't own state
-      ArtifactView.tsx      # watches output/turn-n/ (and input/), auto-refreshes
-    core/                   # pure, unit-testable — no fs/subprocess here
-      session/
-        session.ts          # status transitions, idle-timeout gating
-      usage/
-        parse.ts             # SessionMessage -> TurnUsage
-        pricing.ts           # model rate table
-    io/                     # touches fs/subprocess — integration-tested, not unit
-      claudeRunner.ts        # streaming query(); copies assets/session-template/*
-                              # into <session>/ on creation; if the fragment flag
-                              # is on, also merges fragments/server.ts into
-                              # options.mcpServers
-      fragments/
-        server.ts            # createSdkMcpServer() + the three tool() definitions
-        store.ts              # read/write ./fragments/*.md, content-hash cache
-        browser.ts            # the one shared Playwright context per session
-  fragments/                  # gitignored: user's local library
-  sessions/                   # gitignored: session folders, each seeded from
-                              # assets/session-template/ at creation time
+├── assets/
+│   ├── session-template/   # committed: copied wholesale into <session>/ before spawning query() for that session
+│   │   ├── .claude/
+│   │   │   ├── skills/
+│   │   │   │   ├── fragment-lookup/SKILL.md
+│   │   │   │   ├── fragment-learn/SKILL.md
+│   │   │   │   └── fragment-combine/SKILL.md
+│   │   │   └── commands/   # room to grow; empty for now
+│   │   ├── CLAUDE.md   # testing guardrails for sessions — NOT this repo's own /CLAUDE.md, a completely different thing with a completely different audience
+│   │   └── .mcp.json   # real external servers only, e.g. mcp-server-paint — the in-process fragment server can't go here
+│   └── starter-pack/   # committed: pre-verified common fragments, read-only
+├── src/
+│   ├── main/
+│   │   ├── index.ts
+│   │   ├── window.ts
+│   │   └── ipc.ts   # contextBridge — streamed events, keyed by sessionId, independent of which renderer screen is mounted
+│   ├── renderer/   # UI only, no Node/fs access
+│   │   ├── App.tsx   # routes between the two screens below
+│   │   ├── Dashboard.tsx   # screen 1: sessions grouped by status, new/resume/kill
+│   │   ├── SessionView.tsx   # screen 2: ChatPane (left) + ArtifactView (right)
+│   │   ├── ChatPane.tsx   # re-hydrates from main on mount, doesn't own state
+│   │   └── ArtifactView.tsx   # watches output/turn-n/ (and input/), auto-refreshes
+│   ├── core/   # pure, unit-testable — no fs/subprocess here
+│   │   ├── session/
+│   │   │   └── session.ts   # status transitions, idle-timeout gating
+│   │   └── usage/
+│   │       ├── parse.ts   # SessionMessage -> TurnUsage
+│   │       └── pricing.ts   # model rate table
+│   └── io/   # touches fs/subprocess — integration-tested, not unit
+│       ├── claudeRunner.ts   # streaming query(); copies assets/session-template/* into <session>/ on creation; if the fragment flag is on, also merges fragments/server.ts into options.mcpServers
+│       └── fragments/
+│           ├── server.ts   # createSdkMcpServer() + the three tool() definitions
+│           ├── store.ts   # read/write ./fragments/*.md, content-hash cache
+│           └── browser.ts   # the one shared Playwright context per session
+├── fragments/   # gitignored: user's local library
+└── sessions/   # gitignored: session folders, each seeded from assets/session-template/ at creation time
 ```
 
 ## Core types
