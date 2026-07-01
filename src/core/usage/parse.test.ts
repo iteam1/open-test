@@ -5,7 +5,7 @@ import {
   sliceMessagesForTurn,
 } from './parse'
 
-test('computeTurnUsage sums tokens and prices them by model', () => {
+test('computeTurnUsage sums the per-category token counts and passes cost through', () => {
   const usage = computeTurnUsage(
     1,
     '2026-01-01T00:00:00.000Z',
@@ -23,6 +23,7 @@ test('computeTurnUsage sums tokens and prices them by model', () => {
       },
     ],
     false,
+    0.42, // the SDK's real total_cost_usd for the turn
   )
 
   expect(usage.inputTokens).toBe(1_000_000)
@@ -30,20 +31,8 @@ test('computeTurnUsage sums tokens and prices them by model', () => {
   expect(usage.cacheReadTokens).toBe(1_000_000)
   expect(usage.cacheWrite5mTokens).toBe(1_000_000)
   expect(usage.cacheWrite1hTokens).toBe(1_000_000)
-  // 3 + 15 + 0.3 + 3.75 + 6 per-million rates, all at exactly 1M tokens each
-  expect(usage.costUsd).toBeCloseTo(3 + 15 + 0.3 + 3.75 + 6, 6)
-})
-
-test('an unknown model falls back to the default rate table instead of throwing', () => {
-  const usage = computeTurnUsage(
-    1,
-    '2026-01-01T00:00:00.000Z',
-    '2026-01-01T00:00:05.000Z',
-    'some-future-model[1m]',
-    [{ input_tokens: 1_000_000, output_tokens: 0 }],
-    false,
-  )
-  expect(usage.costUsd).toBeCloseTo(3, 6)
+  // Cost is the real SDK figure, not derived from a hardcoded rate table.
+  expect(usage.costUsd).toBe(0.42)
 })
 
 test("folds a subagent turn's tokens into the same turn total, not just the main transcript", () => {
@@ -57,6 +46,7 @@ test("folds a subagent turn's tokens into the same turn total, not just the main
     'claude-sonnet-5',
     [mainTranscriptUsage, subagentUsage],
     false,
+    0,
   )
 
   expect(usage.inputTokens).toBe(1500)

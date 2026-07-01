@@ -1,5 +1,3 @@
-import { getRates } from './pricing'
-
 export type RawUsage = {
   input_tokens?: number
   output_tokens?: number
@@ -88,9 +86,12 @@ export function sliceMessagesForTurn<
 
 /**
  * Sums token counts across every usage object handed in (main transcript +
- * any subagent files folded in by the caller) and prices the total by
- * model. Caller is responsible for already having deduped and sliced to
- * exactly this turn's messages — this function just does the math.
+ * any subagent files folded in by the caller) for the per-category
+ * breakdown. costUsd is NOT computed here from a rate table — it's the
+ * SDK's own real `total_cost_usd` for the turn, passed in by the caller
+ * (captured from the streamed `result` event). That means no hardcoded
+ * prices to go stale as models/pricing change. Caller is responsible for
+ * having deduped and sliced to exactly this turn's messages.
  */
 export function computeTurnUsage(
   turn: number,
@@ -99,6 +100,7 @@ export function computeTurnUsage(
   model: string,
   usages: RawUsage[],
   usedFragmentTool: boolean,
+  costUsd: number,
 ): TurnUsage {
   const inputTokens = usages.reduce((sum, u) => sum + (u.input_tokens ?? 0), 0)
   const outputTokens = usages.reduce(
@@ -117,14 +119,6 @@ export function computeTurnUsage(
     (sum, u) => sum + (u.cache_creation?.ephemeral_1h_input_tokens ?? 0),
     0,
   )
-
-  const rates = getRates(model)
-  const costUsd =
-    (inputTokens / 1_000_000) * rates.inputPerMillion +
-    (outputTokens / 1_000_000) * rates.outputPerMillion +
-    (cacheReadTokens / 1_000_000) * rates.cacheReadPerMillion +
-    (cacheWrite5mTokens / 1_000_000) * rates.cacheWrite5mPerMillion +
-    (cacheWrite1hTokens / 1_000_000) * rates.cacheWrite1hPerMillion
 
   return {
     turn,

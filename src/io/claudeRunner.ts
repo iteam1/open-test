@@ -307,6 +307,9 @@ async function* messages(prompt: string): AsyncGenerator<SDKUserMessage> {
  * so the bar for turning it on here was a specific acknowledgment, which
  * has now been given.
  */
+/** What runTurn observes about the turn — the SDK's own real cost, captured from the streamed `result` event (null if the turn ended before one arrived, e.g. an interrupt). */
+export type TurnResult = { costUsd: number | null }
+
 export async function runTurn(
   sessionDir: string,
   prompt: string,
@@ -314,7 +317,7 @@ export async function runTurn(
   sessionId?: string,
   resumeClaudeSessionId?: string | null,
   fragmentsRootDir?: string | null,
-) {
+): Promise<TurnResult> {
   // Fragment tools (Phase 5) attach only when a fragments root is passed —
   // that's the config flag from contribute.md. Off, the app is a fully
   // working baseline; the SDK just drives tests live. We do NOT set
@@ -329,6 +332,8 @@ export async function runTurn(
         ),
       }
     : undefined
+
+  let costUsd: number | null = null
 
   try {
     const warmQuery = await startup({
@@ -347,9 +352,17 @@ export async function runTurn(
     }
 
     for await (const message of result) {
-      const withSessionId = message as { session_id?: string }
-      if (sessionId && withSessionId.session_id) {
-        setClaudeSessionId(sessionId, withSessionId.session_id)
+      const m = message as {
+        session_id?: string
+        type?: string
+        total_cost_usd?: number
+      }
+      if (sessionId && m.session_id) {
+        setClaudeSessionId(sessionId, m.session_id)
+      }
+      // The SDK's own real turn cost — no rate table to go stale.
+      if (m.type === 'result' && typeof m.total_cost_usd === 'number') {
+        costUsd = m.total_cost_usd
       }
       onMessage(message)
     }
@@ -359,6 +372,8 @@ export async function runTurn(
     // calls share its context. Always closed so no browser leaks.
     await browser?.close()
   }
+
+  return { costUsd }
 }
 
 async function updateMetadataClaudeSessionId(
@@ -446,6 +461,7 @@ export async function recordTurnUsage(
   turnNumber: number,
   startedAt: string,
   subagentJsonlPaths: string[],
+  costUsd: number,
 ) {
   const allMessages = await getSessionMessages(claudeSessionId)
   const turnMessages = sliceMessagesForTurn(allMessages, turnNumber)
@@ -470,6 +486,7 @@ export async function recordTurnUsage(
     model,
     [...mainUsages, ...subagentUsages],
     turnUsedFragmentTool(turnMessages), // 5.10 / 2.6
+    costUsd, // the SDK's real total_cost_usd, captured from the result event
   )
 
   const usageJsonPath = path.join(sessionDir, 'usage.json')
@@ -509,8 +526,9 @@ export async function runTurnInFolder(
     ? await listSubagentFiles(claudeSessionIdBefore, sessionDir)
     : []
 
+  let turnResult: TurnResult = { costUsd: null }
   try {
-    await runTurn(
+    turnResult = await runTurn(
       sessionDir,
       prompt,
       onMessage,
@@ -543,6 +561,7 @@ export async function runTurnInFolder(
         turnNumber,
         startedAt,
         newSubagentFiles,
+        turnResult.costUsd ?? 0, // SDK's real turn cost; 0 if the turn ended before a result event
       )
     }
   }
