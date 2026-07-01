@@ -19,6 +19,9 @@ import {
   computeTurnUsage,
   RawUsage,
 } from '../core/usage/parse'
+import { FragmentStore } from './fragments/store'
+import { SessionBrowser } from './fragments/browser'
+import { createFragmentServer } from './fragments/server'
 
 /**
  * Copies a template directory (e.g. assets/session-template/) wholesale into
@@ -310,27 +313,51 @@ export async function runTurn(
   onMessage: (message: unknown) => void,
   sessionId?: string,
   resumeClaudeSessionId?: string | null,
+  fragmentsRootDir?: string | null,
 ) {
-  const warmQuery = await startup({
-    options: {
-      cwd: sessionDir,
-      permissionMode: 'bypassPermissions',
-      allowDangerouslySkipPermissions: true,
-      ...(resumeClaudeSessionId ? { resume: resumeClaudeSessionId } : {}),
-    },
-  })
-  const result = warmQuery.query(messages(prompt))
+  // Fragment tools (Phase 5) attach only when a fragments root is passed —
+  // that's the config flag from contribute.md. Off, the app is a fully
+  // working baseline; the SDK just drives tests live. We do NOT set
+  // strictMcpConfig, so the session's copied .mcp.json (e.g. the screenshot
+  // server) is still discovered from cwd alongside this in-process server.
+  const browser = fragmentsRootDir ? new SessionBrowser() : null
+  const mcpServers = fragmentsRootDir
+    ? {
+        fragments: createFragmentServer(
+          new FragmentStore(fragmentsRootDir),
+          browser!,
+        ),
+      }
+    : undefined
 
-  if (sessionId) {
-    setActiveTurn(sessionId, { interrupt: () => result.interrupt() })
-  }
+  try {
+    const warmQuery = await startup({
+      options: {
+        cwd: sessionDir,
+        permissionMode: 'bypassPermissions',
+        allowDangerouslySkipPermissions: true,
+        ...(resumeClaudeSessionId ? { resume: resumeClaudeSessionId } : {}),
+        ...(mcpServers ? { mcpServers } : {}),
+      },
+    })
+    const result = warmQuery.query(messages(prompt))
 
-  for await (const message of result) {
-    const withSessionId = message as { session_id?: string }
-    if (sessionId && withSessionId.session_id) {
-      setClaudeSessionId(sessionId, withSessionId.session_id)
+    if (sessionId) {
+      setActiveTurn(sessionId, { interrupt: () => result.interrupt() })
     }
-    onMessage(message)
+
+    for await (const message of result) {
+      const withSessionId = message as { session_id?: string }
+      if (sessionId && withSessionId.session_id) {
+        setClaudeSessionId(sessionId, withSessionId.session_id)
+      }
+      onMessage(message)
+    }
+  } finally {
+    // One browser process per turn (our per-turn-resume architecture already
+    // spawns a fresh subprocess each turn); within a turn all run_fragment
+    // calls share its context. Always closed so no browser leaks.
+    await browser?.close()
   }
 }
 
@@ -391,6 +418,28 @@ async function readRawUsagesFromJsonl(filePath: string): Promise<RawUsage[]> {
  * total, and appends one TurnUsage entry to usage.json (created empty by
  * createSessionFolder in 2.1b).
  */
+/**
+ * Did this turn call run_fragment or save_fragment (2.6/5.10)? MCP tool
+ * calls surface in the transcript as tool_use blocks named
+ * mcp__fragments__<tool>. Cheap to derive here while we already have the
+ * turn's messages; otherwise unrecoverable later without re-scanning.
+ */
+function turnUsedFragmentTool(turnMessages: { message: unknown }[]): boolean {
+  return turnMessages.some((m) => {
+    const content = (m.message as { content?: unknown }).content
+    if (!Array.isArray(content)) return false
+    return content.some((block) => {
+      const name = block as { type?: string; name?: string }
+      return (
+        name.type === 'tool_use' &&
+        typeof name.name === 'string' &&
+        (name.name.includes('run_fragment') ||
+          name.name.includes('save_fragment'))
+      )
+    })
+  })
+}
+
 export async function recordTurnUsage(
   sessionDir: string,
   claudeSessionId: string,
@@ -420,7 +469,7 @@ export async function recordTurnUsage(
     new Date().toISOString(),
     model,
     [...mainUsages, ...subagentUsages],
-    false, // fragment tools don't exist yet (Phase 5) — always false until then
+    turnUsedFragmentTool(turnMessages), // 5.10 / 2.6
   )
 
   const usageJsonPath = path.join(sessionDir, 'usage.json')
@@ -448,6 +497,7 @@ export async function runTurnInFolder(
   prompt: string,
   onMessage: (message: unknown) => void,
   sessionId: string,
+  fragmentsRootDir?: string | null,
 ) {
   await mkdir(path.join(sessionDir, 'output', `turn-${turnNumber}`), {
     recursive: true,
@@ -466,6 +516,7 @@ export async function runTurnInFolder(
       onMessage,
       sessionId,
       claudeSessionIdBefore,
+      fragmentsRootDir,
     )
   } finally {
     // Narrow edge case, not fixable here: if a kill lands before the SDK

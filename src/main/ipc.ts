@@ -29,6 +29,7 @@ export function registerIpc(
   sessionsRootDir: string,
   templateDir: string,
   win: BrowserWindow,
+  fragmentsRootDir: string | null,
 ) {
   const sessionDirFor = (sessionId: string) =>
     path.join(sessionsRootDir, sessionId)
@@ -133,6 +134,7 @@ export function registerIpc(
             event.sender.send('chunk', sessionId, message)
           },
           sessionId,
+          fragmentsRootDir,
         )
       } finally {
         // Runs whether the turn finished normally or the SDK threw (e.g. an

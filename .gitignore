@@ -8,9 +8,12 @@ CLAUDE.local.md
 .understand-anything/
 .gitnexus/
 
-# Local runtime data (user/target-specific, not part of the tool itself)
-sessions/
-fragments/
+# Local runtime data (user/target-specific, not part of the tool itself).
+# Anchored to repo root so they only match the app-root runtime dirs — an
+# unanchored "fragments/" also matches src/io/fragments/ (the code), which
+# must be committed.
+/sessions/
+/fragments/
 
 # Node.js
 .env
