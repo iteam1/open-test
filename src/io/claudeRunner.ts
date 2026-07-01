@@ -215,6 +215,18 @@ async function* messages(prompt: string): AsyncGenerator<SDKUserMessage> {
  * history instead of starting cold (2.7) — this also doubles as how every
  * turn after the first keeps context, not just an explicit post-close
  * resume.
+ *
+ * Confirmed live (4.2): without some permission-mode change, Claude
+ * correctly refuses to run Bash/playwright-cli at all in this
+ * non-interactive session rather than fabricate a result, since Bash
+ * normally needs interactive per-call approval. Autonomous live testing
+ * (Phase 4) needs a real decision here — permissionMode:
+ * 'bypassPermissions' was tried and blocked by the harness's own safety
+ * classifier (disables all approval gates for a sub-agent running
+ * arbitrary Bash against live external targets) as a self-chosen
+ * escalation the user hadn't explicitly authorized. Left as a plain
+ * cwd/resume call for now, pending that decision — see the 4.2 test for
+ * what's blocked without it.
  */
 export async function runTurn(
   sessionDir: string,

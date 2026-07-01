@@ -170,6 +170,7 @@ The only real process boundary above is `M` ↔ `N`. Fragment tools live inside 
 - Bun, TypeScript
 - uv (for `mcp-server-paint`)
 - Claude Agent SDK (`@anthropic-ai/claude-agent-sdk`) — brings the `claude` binary along; no separate CLI install
+- `@playwright/cli` (`bun add -g @playwright/cli`), plus a browser (`playwright-cli install-browser`) — needs to resolve on `PATH` from wherever the app itself is launched, since that's the environment its spawned `claude` subprocess (and in turn _its_ spawned Bash tool) inherits. A user-owned global install (e.g. into `~/.bun/bin`) works; a system-wide install under `/usr` would need root and isn't necessary
 
 ## Main dependencies
 
