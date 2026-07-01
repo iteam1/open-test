@@ -8,6 +8,10 @@ CLAUDE.local.md
 .understand-anything/
 .gitnexus/
 
+# Local runtime data (user/target-specific, not part of the tool itself)
+sessions/
+fragments/
+
 # Node.js
 .env
 .env.*
