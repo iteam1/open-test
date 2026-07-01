@@ -1,19 +1,15 @@
 import { app } from 'electron'
 import path from 'node:path'
-import os from 'node:os'
 import { createWindow } from './window'
 import { registerIpc } from './ipc'
-import { createSessionFolder } from '../io/claudeRunner'
 
-app.whenReady().then(async () => {
-  const sessionId = 'dev-session'
-  const sessionDir = path.join(os.tmpdir(), 'open-test-dev-session')
-  const templateDir = path.join(__dirname, '../../assets/session-template')
-
-  await createSessionFolder(sessionId, templateDir, sessionDir)
+app.whenReady().then(() => {
+  const appRoot = app.getAppPath()
+  const sessionsRootDir = path.join(appRoot, 'sessions')
+  const templateDir = path.join(appRoot, 'assets/session-template')
 
   const win = createWindow()
-  registerIpc(sessionId, sessionDir, win)
+  registerIpc(sessionsRootDir, templateDir, win)
 })
 
 app.on('window-all-closed', () => {

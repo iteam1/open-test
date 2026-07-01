@@ -1,20 +1,37 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('api', {
-  sendMessage: (prompt: string) => {
-    ipcRenderer.send('send-message', prompt)
+  createSession: () => ipcRenderer.invoke('create-session'),
+  listSessions: () => ipcRenderer.invoke('list-sessions'),
+  renameSession: (claudeSessionId: string, title: string) =>
+    ipcRenderer.invoke('rename-session', claudeSessionId, title),
+  getChatLog: (sessionId: string) =>
+    ipcRenderer.invoke('get-chat-log', sessionId),
+  sendMessage: (sessionId: string, prompt: string) => {
+    ipcRenderer.send('send-message', sessionId, prompt)
   },
-  killSession: () => {
-    ipcRenderer.send('kill-session')
+  killSession: (sessionId: string) => {
+    ipcRenderer.send('kill-session', sessionId)
   },
+  // Both return an unsubscribe function — React components call this from
+  // their useEffect cleanup, so mounting/unmounting a screen repeatedly
+  // (Dashboard <-> SessionView, per 3.3) doesn't stack duplicate listeners.
   onChunk: (callback: (sessionId: string, message: unknown) => void) => {
-    ipcRenderer.on('chunk', (_event, sessionId, message) => {
-      callback(sessionId, message)
-    })
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      sessionId: string,
+      message: unknown,
+    ) => callback(sessionId, message)
+    ipcRenderer.on('chunk', listener)
+    return () => ipcRenderer.removeListener('chunk', listener)
   },
   onStatus: (callback: (sessionId: string, status: string) => void) => {
-    ipcRenderer.on('status', (_event, sessionId, status) => {
-      callback(sessionId, status)
-    })
+    const listener = (
+      _event: Electron.IpcRendererEvent,
+      sessionId: string,
+      status: string,
+    ) => callback(sessionId, status)
+    ipcRenderer.on('status', listener)
+    return () => ipcRenderer.removeListener('status', listener)
   },
 })
