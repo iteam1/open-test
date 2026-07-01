@@ -8,6 +8,7 @@ type Session = {
   lastActiveAt: number
   claudeSessionId: string | null
   activeTurn: ActiveTurn | null
+  chatLog: unknown[]
 }
 
 /** In-memory status per session, keyed by sessionId. Not persisted. */
@@ -22,6 +23,7 @@ function getOrCreate(sessionId: string): Session {
       lastActiveAt: 0,
       claudeSessionId: null,
       activeTurn: null,
+      chatLog: [],
     }
     sessions.set(sessionId, session)
   }
@@ -138,4 +140,18 @@ export async function killSession(sessionId: string): Promise<void> {
 export function reopenSession(sessionId: string): void {
   const session = sessions.get(sessionId)
   if (session) session.status = 'idle'
+}
+
+/**
+ * Full ordered log of every streamed message for a session (3.3) — lets a
+ * screen that (re)mounts hydrate what already happened instead of only
+ * seeing chunks forwarded live from here on. ChatPane.tsx calls this on
+ * mount; ipc.ts calls appendToChatLog every time it forwards a chunk.
+ */
+export function getChatLog(sessionId: string): unknown[] {
+  return sessions.get(sessionId)?.chatLog ?? []
+}
+
+export function appendToChatLog(sessionId: string, message: unknown): void {
+  getOrCreate(sessionId).chatLog.push(message)
 }

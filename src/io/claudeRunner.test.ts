@@ -3,7 +3,14 @@ import { mkdtemp, rm, readFile, readdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
-import { createSessionFolder, runTurn, runTurnInFolder } from './claudeRunner'
+import {
+  createSessionFolder,
+  runTurn,
+  runTurnInFolder,
+  createSession,
+  listSessions,
+  renameSessionTitle,
+} from './claudeRunner'
 import {
   killSession,
   getStatus,
@@ -157,3 +164,68 @@ test('2.7: a closed session resumes with full context on the next push', async (
 
   expect(finalReply.toLowerCase()).toContain('pineapple')
 }, 60_000)
+
+let sessionsRootTmpDir: string
+
+afterEach(async () => {
+  if (sessionsRootTmpDir) {
+    await rm(sessionsRootTmpDir, { recursive: true, force: true })
+  }
+})
+
+test('listSessions combines metadata.json with in-memory status, defaulting to closed', async () => {
+  sessionsRootTmpDir = await mkdtemp(path.join(os.tmpdir(), 'open-test-root-'))
+  const templateDir = path.join(
+    import.meta.dir,
+    '../../assets/session-template',
+  )
+
+  const untouched = await createSession(templateDir, sessionsRootTmpDir)
+  const running = await createSession(templateDir, sessionsRootTmpDir)
+
+  // Simulate: this process has an active turn for `running`, but has never
+  // touched `untouched` at all (e.g. the app just started).
+  startTurn(running.sessionId)
+
+  const summaries = await listSessions(sessionsRootTmpDir)
+  expect(summaries).toHaveLength(2)
+
+  const untouchedSummary = summaries.find(
+    (s) => s.sessionId === untouched.sessionId,
+  )
+  const runningSummary = summaries.find(
+    (s) => s.sessionId === running.sessionId,
+  )
+
+  expect(untouchedSummary?.status).toBe('closed')
+  expect(runningSummary?.status).toBe('running')
+})
+
+test('listSessions returns [] for a sessions root that does not exist yet', async () => {
+  const summaries = await listSessions('/tmp/open-test-does-not-exist-xyz')
+  expect(summaries).toEqual([])
+})
+
+test('renameSessionTitle updates the display name listSessions returns', async () => {
+  sessionsRootTmpDir = await mkdtemp(path.join(os.tmpdir(), 'open-test-root-'))
+  const templateDir = path.join(
+    import.meta.dir,
+    '../../assets/session-template',
+  )
+
+  const { sessionId, sessionDir } = await createSession(
+    templateDir,
+    sessionsRootTmpDir,
+  )
+
+  await runTurnInFolder(sessionDir, 1, 'Hello!', () => {}, sessionId)
+
+  const metadata = JSON.parse(
+    await readFile(path.join(sessionDir, 'metadata.json'), 'utf-8'),
+  )
+  await renameSessionTitle(metadata.claude_session_id, 'My renamed session')
+
+  const summaries = await listSessions(sessionsRootTmpDir)
+  const summary = summaries.find((s) => s.sessionId === sessionId)
+  expect(summary?.displayName).toBe('My renamed session')
+}, 30_000)

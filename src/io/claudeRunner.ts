@@ -5,12 +5,15 @@ import os from 'node:os'
 import {
   startup,
   getSessionMessages,
+  getSessionInfo,
+  renameSession,
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk'
 import {
   setActiveTurn,
   setClaudeSessionId,
   getClaudeSessionId,
+  getStatus,
 } from '../core/session/session'
 import {
   sliceMessagesForTurn,
@@ -51,6 +54,93 @@ export async function createSessionFolder(
     }),
   )
   await writeFile(path.join(sessionDir, 'usage.json'), JSON.stringify([]))
+}
+
+/** e.g. "2026-07-02-091530-a1b2" — sortable, matches overview.md's "year-month-day-time" description; the random suffix guards two sessions created in the same second. */
+function generateSessionId(): string {
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
+  const suffix = Math.random().toString(16).slice(2, 6)
+  return `${stamp}-${suffix}`
+}
+
+/**
+ * Allocates a new sessionId and builds its folder under sessionsRootDir
+ * (via createSessionFolder). This is the one place a new session comes
+ * into existence — the Dashboard's "New session" action calls this.
+ */
+export async function createSession(
+  templateDir: string,
+  sessionsRootDir: string,
+) {
+  const sessionId = generateSessionId()
+  const sessionDir = path.join(sessionsRootDir, sessionId)
+  await createSessionFolder(sessionId, templateDir, sessionDir)
+  return { sessionId, sessionDir }
+}
+
+export type SessionSummary = {
+  sessionId: string
+  claudeSessionId: string
+  createdAt: string
+  status: 'idle' | 'running' | 'closed'
+  path: string
+  displayName: string
+}
+
+/**
+ * Reads every session folder under sessionsRootDir and combines each one's
+ * metadata.json with its in-memory status (3.1) — a session this process
+ * never touched reads as 'closed', regardless of what a stale metadata.json
+ * might imply (design.md's invariant: no live connection in memory means
+ * closed, always). displayName comes from the SDK's own customTitle/
+ * summary (design.md: not a field on Session itself), falling back to the
+ * sessionId when there's no claudeSessionId yet (a session with no turns).
+ */
+export async function listSessions(
+  sessionsRootDir: string,
+): Promise<SessionSummary[]> {
+  if (!existsSync(sessionsRootDir)) return []
+
+  const entries = await readdir(sessionsRootDir, { withFileTypes: true })
+  const summaries: SessionSummary[] = []
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+
+    const sessionDir = path.join(sessionsRootDir, entry.name)
+    const metadataPath = path.join(sessionDir, 'metadata.json')
+    if (!existsSync(metadataPath)) continue
+
+    const metadata = JSON.parse(await readFile(metadataPath, 'utf-8'))
+    const claudeSessionId = metadata.claude_session_id as string
+
+    let displayName = metadata.session_id as string
+    if (claudeSessionId) {
+      const info = await getSessionInfo(claudeSessionId)
+      displayName = info?.customTitle ?? info?.summary ?? displayName
+    }
+
+    summaries.push({
+      sessionId: metadata.session_id,
+      claudeSessionId,
+      createdAt: metadata.created_at,
+      status: getStatus(metadata.session_id) ?? 'closed',
+      path: sessionDir,
+      displayName,
+    })
+  }
+
+  return summaries
+}
+
+/** Thin wrapper so ipc.ts doesn't need its own direct SDK import for one call (3.2's rename). */
+export async function renameSessionTitle(
+  claudeSessionId: string,
+  title: string,
+) {
+  await renameSession(claudeSessionId, title)
 }
 
 /**

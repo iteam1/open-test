@@ -9,6 +9,8 @@ import {
   setActiveTurn,
   getClaudeSessionId,
   setClaudeSessionId,
+  getChatLog,
+  appendToChatLog,
 } from './session'
 
 test('startTurn sets status to running, endTurn returns it to idle', () => {
@@ -129,4 +131,18 @@ test('claudeSessionId round-trips for use by resume', () => {
   expect(getClaudeSessionId(sessionId)).toBeNull()
   setClaudeSessionId(sessionId, 'claude-abc-123')
   expect(getClaudeSessionId(sessionId)).toBe('claude-abc-123')
+})
+
+test('chat log accumulates in order and starts empty for an unknown session', () => {
+  const sessionId = 'session-i'
+
+  expect(getChatLog(sessionId)).toEqual([])
+
+  appendToChatLog(sessionId, { type: 'assistant', text: 'first' })
+  appendToChatLog(sessionId, { type: 'assistant', text: 'second' })
+
+  expect(getChatLog(sessionId)).toEqual([
+    { type: 'assistant', text: 'first' },
+    { type: 'assistant', text: 'second' },
+  ])
 })
