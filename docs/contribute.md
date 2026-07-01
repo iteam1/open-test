@@ -26,7 +26,7 @@
 
 ## Suggestions
 
-**In-process, not a separate server.** The three fragment tools run inside open-test's own main process — defined with the Agent SDK's `createSdkMcpServer()`/`tool()` helpers, attached via `options.mcpServers` on the session's streaming `query()` connection (see `design.md`). There's no separate package, no subprocess, no `.mcp.json` entry, and no independent crash-lifecycle to manage. A config flag controls whether they're attached at all: turn it off, and Claude falls back to live Playwright Agent CLI execution every time, as if fragments never existed.
+**In-process, not a separate server.** The three fragment tools run inside open-test's own main process — defined with the Agent SDK's `createSdkMcpServer()`/`tool()` helpers, attached via `options.mcpServers` on the session's streaming `query()` connection (see `design.md`). There's no separate package, no subprocess, no entry in `.mcp.json` for them, and no independent crash-lifecycle to manage. (`.mcp.json` still exists and still holds real external servers, like `mcp-server-paint` — just not this one.) A config flag controls whether they're attached at all: turn it off, and Claude falls back to live Playwright Agent CLI execution every time, as if fragments never existed.
 
 Each fragment is one markdown file: YAML frontmatter for matching and params, prose explaining intent, and one JS code fence with the actual execution.
 
@@ -55,6 +55,7 @@ verified_at: 2026-07-01
 use_count: 0
 last_used_at: null
 consecutive_failures: 0
+needs_reverification: false
 ---
 
 Use this when a test needs to be logged in first.
@@ -76,9 +77,9 @@ Each part of the file plays a different role. The frontmatter is what `match_fra
 
 | Tool | What it does | Design notes |
 |---|---|---|
-| `match_fragments(url, tags?)` | Filters candidates by URL and tags, ranks them by `use_count`/`last_used_at`, and returns a capped shortlist (about 5-10) with each candidate's description and code. | The filtering and ranking are deterministic, with no LLM involved. Picking one from the shortlist is Claude's own call, based on reading each candidate's description and code. |
+| `match_fragments(url, tags?)` | Filters candidates by URL and tags (skipping any marked `needs_reverification`), ranks them by `use_count`/`last_used_at`, and returns a capped shortlist (about 5-10) with each candidate's description and code. | The filtering and ranking are deterministic, with no LLM involved. Picking one from the shortlist is Claude's own call, based on reading each candidate's description and code. |
 | `run_fragment(name, args)` | Extracts the cached `.js` file by content hash, executes it, and returns the result. | A failed run increments `consecutive_failures`; a successful one resets that counter and bumps `use_count`/`last_used_at`. It runs in-process, in the same event loop as the app, so there are no cross-process races to worry about. |
-| `save_fragment(name, description, scope, url_pattern, tags, params, code)` | Opens a fresh browser, navigates to `url_pattern`, and runs the code once from a cold start — nothing carried over from whatever Claude was doing when it found this flow. It only writes the `.md` file if that cold run passes; otherwise it rejects the save. | This is a mechanical check, not a hope that Claude followed the skill correctly. It also catches a fragment that only works because some *other*, undeclared fragment happened to run first — a cold start correctly rejects that case. If a fragment's dependency changes (its content hash changes), every fragment that imports it is marked `needs_reverification`. |
+| `save_fragment(name, description, scope, url_pattern, tags, params, code)` | Opens its own fresh browser — separate from the shared per-session context `run_fragment` uses — navigates to `url_pattern`, and runs the code once from a cold start; nothing carried over from whatever Claude was doing when it found this flow. It only writes the `.md` file if that cold run passes; otherwise it rejects the save. | This is a mechanical check, not a hope that Claude followed the skill correctly. It also catches a fragment that only works because some *other*, undeclared fragment happened to run first — a cold start correctly rejects that case. If a fragment's dependency changes (its content hash changes), every fragment that imports it is marked `needs_reverification` (see the `FragmentMeta` field in `design.md`). |
 
 **Three skills that use them:**
 

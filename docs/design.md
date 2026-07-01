@@ -48,9 +48,9 @@ open-test/
 │       ├── claudeRunner.ts   # streaming query(); copies assets/session-template/* into <session>/ on creation; if the fragment flag is on, also merges fragments/server.ts into options.mcpServers
 │       └── fragments/
 │           ├── server.ts   # createSdkMcpServer() + the three tool() definitions
-│           ├── store.ts   # read/write ./fragments/*.md, content-hash cache
-│           └── browser.ts   # the one shared Playwright context per session
-├── fragments/   # gitignored: user's local library
+│           ├── store.ts   # read/write the top-level fragments/*.md (app-root path, independent of any session's own cwd), content-hash cache
+│           └── browser.ts   # the one shared Playwright context per session, for match_fragments/run_fragment — save_fragment's cold-run check opens its own separate, throwaway browser
+├── fragments/   # gitignored: one shared library for the whole app — not per-session, not copied into session-template
 └── sessions/   # gitignored: session folders, each seeded from assets/session-template/ at creation time
 ```
 
@@ -103,6 +103,9 @@ interface FragmentMeta {
   use_count: number
   last_used_at: string | null
   consecutive_failures: number
+  needs_reverification: boolean  // set when a dependency's content hash
+                                  // changes, or after 3 consecutive_failures;
+                                  // cleared by a passing save_fragment re-run
 }
 
 interface FragmentParam {
