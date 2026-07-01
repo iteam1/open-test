@@ -146,6 +146,39 @@ export async function listSessions(
   return summaries
 }
 
+export type ArtifactList = {
+  turn: number
+  files: { name: string; path: string }[]
+}
+
+/**
+ * Finds the highest-numbered output/turn-<n>/ folder and lists its files
+ * (3.3's artifact panel shows "what's happening now," not a per-turn
+ * browser — good enough for what 4.3 asks: watch it update live during a
+ * run). turn 0 / files [] if the session has no turns yet.
+ */
+export async function listLatestArtifacts(
+  sessionDir: string,
+): Promise<ArtifactList> {
+  const outputDir = path.join(sessionDir, 'output')
+  if (!existsSync(outputDir)) return { turn: 0, files: [] }
+
+  const entries = await readdir(outputDir)
+  let latestTurn = 0
+  for (const entry of entries) {
+    const match = entry.match(/^turn-(\d+)$/)
+    if (match) latestTurn = Math.max(latestTurn, Number(match[1]))
+  }
+  if (latestTurn === 0) return { turn: 0, files: [] }
+
+  const turnDir = path.join(outputDir, `turn-${latestTurn}`)
+  const names = (await readdir(turnDir)).sort()
+  return {
+    turn: latestTurn,
+    files: names.map((name) => ({ name, path: path.join(turnDir, name) })),
+  }
+}
+
 /**
  * Loads a session's persisted claudeSessionId/turnCount into session.ts as
  * 'closed' the first time this process encounters it — call this before

@@ -18,6 +18,7 @@ import {
   listSessions,
   renameSessionTitle,
   hydrateSessionFromDisk,
+  listLatestArtifacts,
 } from './claudeRunner'
 import {
   killSession,
@@ -333,3 +334,55 @@ test.skip('4.2: a live turn drives playwright-cli via Bash and saves a real scre
   const contents = await readFile(screenshotPath)
   expect(contents.length).toBeGreaterThan(0)
 }, 120_000)
+
+test('listLatestArtifacts finds the highest-numbered turn folder and lists its files', async () => {
+  sessionTmpDir = await mkdtemp(path.join(os.tmpdir(), 'open-test-'))
+  const templateDir = path.join(
+    import.meta.dir,
+    '../../assets/session-template',
+  )
+  await createSessionFolder('test-session', templateDir, sessionTmpDir)
+
+  await mkdir(path.join(sessionTmpDir, 'output', 'turn-1'), {
+    recursive: true,
+  })
+  await writeFile(
+    path.join(sessionTmpDir, 'output', 'turn-1', 'old.png'),
+    'old',
+  )
+
+  await mkdir(path.join(sessionTmpDir, 'output', 'turn-2'), {
+    recursive: true,
+  })
+  await writeFile(
+    path.join(sessionTmpDir, 'output', 'turn-2', 'screenshot.png'),
+    'fake-png-bytes',
+  )
+  await writeFile(
+    path.join(sessionTmpDir, 'output', 'turn-2', 'report.md'),
+    '# verdict',
+  )
+
+  const result = await listLatestArtifacts(sessionTmpDir)
+
+  expect(result.turn).toBe(2)
+  expect(result.files.map((f) => f.name)).toEqual([
+    'report.md',
+    'screenshot.png',
+  ])
+  expect(result.files[0].path).toBe(
+    path.join(sessionTmpDir, 'output', 'turn-2', 'report.md'),
+  )
+})
+
+test('listLatestArtifacts returns turn 0 and no files for a session with no turns yet', async () => {
+  sessionTmpDir = await mkdtemp(path.join(os.tmpdir(), 'open-test-'))
+  const templateDir = path.join(
+    import.meta.dir,
+    '../../assets/session-template',
+  )
+  await createSessionFolder('test-session', templateDir, sessionTmpDir)
+
+  const result = await listLatestArtifacts(sessionTmpDir)
+  expect(result).toEqual({ turn: 0, files: [] })
+})

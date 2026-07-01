@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.invoke('rename-session', claudeSessionId, title),
   getChatLog: (sessionId: string) =>
     ipcRenderer.invoke('get-chat-log', sessionId),
+  getArtifacts: (sessionId: string) =>
+    ipcRenderer.invoke('get-artifacts', sessionId),
   sendMessage: (sessionId: string, prompt: string) => {
     ipcRenderer.send('send-message', sessionId, prompt)
   },
@@ -47,5 +49,14 @@ contextBridge.exposeInMainWorld('api', {
       callback(sessionId)
     ipcRenderer.on('push-rejected', listener)
     return () => ipcRenderer.removeListener('push-rejected', listener)
+  },
+  // Fires whenever any file changes under any session's output/ (4.3) —
+  // main process doesn't know which turn's folder the renderer cares
+  // about, so this is just a "something changed, go re-fetch" signal.
+  onArtifactsChanged: (callback: (sessionId: string) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, sessionId: string) =>
+      callback(sessionId)
+    ipcRenderer.on('artifacts-changed', listener)
+    return () => ipcRenderer.removeListener('artifacts-changed', listener)
   },
 })

@@ -1,11 +1,13 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import path from 'node:path'
+import { watch, mkdirSync } from 'node:fs'
 import {
   runTurnInFolder,
   createSession,
   listSessions,
   renameSessionTitle,
   hydrateSessionFromDisk,
+  listLatestArtifacts,
 } from '../io/claudeRunner'
 import {
   startTurn,
@@ -30,6 +32,29 @@ export function registerIpc(
 ) {
   const sessionDirFor = (sessionId: string) =>
     path.join(sessionsRootDir, sessionId)
+
+  // Must exist before watch() below — fs.watch throws immediately on a
+  // path that doesn't exist yet, and nothing else guarantees this
+  // directory exists before the very first session is ever created.
+  mkdirSync(sessionsRootDir, { recursive: true })
+
+  ipcMain.handle('get-artifacts', (_event, sessionId: string) => {
+    return listLatestArtifacts(sessionDirFor(sessionId))
+  })
+
+  // One watcher for every session's output/, for the whole app lifetime —
+  // simpler than setting up/tearing down a per-session watcher on every
+  // SessionView mount/unmount, and matches the same global-listener-plus-
+  // renderer-side-filtering pattern onChunk/onStatus already use (3.3).
+  const artifactWatcher = watch(
+    sessionsRootDir,
+    { recursive: true },
+    (_eventType, filename) => {
+      if (!filename) return
+      const sessionId = filename.split(path.sep)[0]
+      if (sessionId) win.webContents.send('artifacts-changed', sessionId)
+    },
+  )
 
   ipcMain.handle('create-session', async () => {
     return createSession(templateDir, sessionsRootDir)
@@ -138,5 +163,8 @@ export function registerIpc(
     }
   }, IDLE_CHECK_INTERVAL_MS)
 
-  win.on('closed', () => clearInterval(idleCheck))
+  win.on('closed', () => {
+    clearInterval(idleCheck)
+    artifactWatcher.close()
+  })
 }
