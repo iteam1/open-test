@@ -1,5 +1,5 @@
-import { app,  BrowserWindow, ipcMain} from 'electron';
-import path from "path"
+import { app, BrowserWindow, ipcMain } from 'electron'
+import path from 'path'
 
 app.whenReady().then(() => {
   const win = new BrowserWindow({
