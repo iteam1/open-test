@@ -75,14 +75,20 @@ export function startTurn(sessionId: string): number | false {
   return session.turnCount
 }
 
-/** Call this once a turn's reply is fully received (or the turn failed), to flip status back to idle. */
+/**
+ * Call this once a turn's reply is fully received (or the turn failed), to
+ * flip status back to idle. No-ops if status is already 'closed' — a
+ * kill can land while this turn's own cleanup is still unwinding (the SDK
+ * throwing per 1.4's finding takes a moment to propagate), and that
+ * explicit close must not get silently reverted back to idle by this call
+ * arriving after it.
+ */
 export function endTurn(sessionId: string, now: number): void {
   const session = sessions.get(sessionId)
-  if (session) {
-    session.status = 'idle'
-    session.lastActiveAt = now
-    session.activeTurn = null
-  }
+  if (!session || session.status === 'closed') return
+  session.status = 'idle'
+  session.lastActiveAt = now
+  session.activeTurn = null
 }
 
 /**

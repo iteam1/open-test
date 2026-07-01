@@ -101,6 +101,28 @@ test('killSession on an idle session just closes it, no interrupt needed', async
   expect(getStatus(sessionId)).toBe('closed')
 })
 
+test('endTurn arriving after killSession does not revert the close (advisor-found race)', async () => {
+  const sessionId = 'session-h'
+
+  startTurn(sessionId)
+  setActiveTurn(sessionId, {
+    interrupt: async () => {
+      throw new Error('Query closed before response received')
+    },
+  })
+
+  // Simulates: kill-session IPC handler runs to completion first...
+  await killSession(sessionId)
+  expect(getStatus(sessionId)).toBe('closed')
+
+  // ...then the original send-message handler's `finally` still fires,
+  // since the SDK's throw takes a moment to propagate up through it.
+  endTurn(sessionId, 1000)
+
+  // Must still be closed — not silently reverted to idle.
+  expect(getStatus(sessionId)).toBe('closed')
+})
+
 test('claudeSessionId round-trips for use by resume', () => {
   const sessionId = 'session-g'
 
