@@ -4,18 +4,30 @@
     <title>open-test</title>
   </head>
   <body>
+    <p id="status">idle</p>
     <pre id="output"></pre>
     <form id="prompt-form">
       <input id="prompt-input" type="text" autocomplete="off" />
       <button type="submit">Send</button>
     </form>
+    <button id="kill-button" type="button">Kill</button>
     <script>
+      const status = document.getElementById('status')
       const output = document.getElementById('output')
       const form = document.getElementById('prompt-form')
       const input = document.getElementById('prompt-input')
+      const killButton = document.getElementById('kill-button')
+
+      killButton.addEventListener('click', () => {
+        window.api.killSession()
+      })
 
       window.api.onChunk((sessionId, message) => {
         output.textContent += JSON.stringify(message) + '\n'
+      })
+
+      window.api.onStatus((sessionId, newStatus) => {
+        status.textContent = newStatus
       })
 
       form.addEventListener('submit', (event) => {

@@ -11,9 +11,9 @@ app.whenReady().then(async () => {
   const templateDir = path.join(__dirname, '../../assets/session-template')
 
   await createSessionFolder(sessionId, templateDir, sessionDir)
-  registerIpc(sessionId, sessionDir)
 
-  createWindow()
+  const win = createWindow()
+  registerIpc(sessionId, sessionDir, win)
 })
 
 app.on('window-all-closed', () => {
