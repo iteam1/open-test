@@ -2,6 +2,14 @@
 
 *Make your work testable!*
 
+## Prerequisites
+
+Requires [Bun](https://bun.com/) and [uv](https://github.com/astral-sh/uv). Check both are installed:
+
+- macOS/Linux: `./scripts/check-prereqs.sh`
+- Windows (cmd): `scripts\check-prereqs.bat`
+- Windows (PowerShell): `.\scripts\check-prereqs.ps1`
+
 ## TODO
 
 **Develop**
