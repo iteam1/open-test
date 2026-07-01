@@ -51,6 +51,11 @@ export function registerIpc(
     { recursive: true },
     (_eventType, filename) => {
       if (!filename) return
+      // A file landing directly at sessionsRootDir's top level (not inside
+      // any session folder — e.g. a stray editor swapfile) makes this the
+      // whole filename instead of a real sessionId. Harmless: no open
+      // ArtifactView has a matching sessionId, so its `id === sessionId`
+      // check silently no-ops.
       const sessionId = filename.split(path.sep)[0]
       if (sessionId) win.webContents.send('artifacts-changed', sessionId)
     },

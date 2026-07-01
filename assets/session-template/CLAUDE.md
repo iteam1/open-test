@@ -27,6 +27,10 @@ otherwise. Treat every action on it as real and irreversible by default:
   isn't clearly your own disposable test fixture.
 - Never perform an action whose undo path you don't already know, on a
   target you don't control.
+- The bullets above are examples, not the whole list: any action that
+  affects a real account, record, setting, or recipient outside your own
+  disposable test fixture — even one not named here — falls under this
+  same rule.
 - If a page or flow looks like it would do one of the above, stop before
   clicking through it and ask the user first — do not guess that it's
   "probably fine" because nothing has gone wrong yet.
