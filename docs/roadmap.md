@@ -51,7 +51,7 @@ Tasks 1.2-1.6 are throwaway scripts in `scratch/`, not app code — the goal is 
 
 ## Phase 2 — Combine: real session + real streaming + real IPC
 
-- **2.1a** [ ] Create `assets/session-template/` once, at the app level — near-empty scaffold: empty `.claude/skills/`, empty `.claude/commands/`, a minimal placeholder `CLAUDE.md`, an empty `.mcp.json` (`{}`)
+- **2.1a** [x] Create `assets/session-template/` once, at the app level — near-empty scaffold: empty `.claude/skills/`, empty `.claude/commands/`, a minimal placeholder `CLAUDE.md`, an empty `.mcp.json` (`{}`)
   Test: the template folder exists at the app root with exactly these four things, nothing else yet
 
 - **2.1b** [ ] Session manager copies `assets/session-template/` (from 2.1a) wholesale into every new session folder, plus creates `input/`, an empty `output/`, `metadata.json` (`session_id`, `claude_session_id`, `created_at`), and an empty `usage.json` (`[]`)
