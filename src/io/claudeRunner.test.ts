@@ -1,5 +1,12 @@
 import { test, expect, afterEach } from 'bun:test'
-import { mkdtemp, rm, readFile, readdir } from 'node:fs/promises'
+import {
+  mkdtemp,
+  rm,
+  readFile,
+  readdir,
+  mkdir,
+  writeFile,
+} from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
@@ -10,12 +17,14 @@ import {
   createSession,
   listSessions,
   renameSessionTitle,
+  hydrateSessionFromDisk,
 } from './claudeRunner'
 import {
   killSession,
   getStatus,
   reopenSession,
   startTurn,
+  getClaudeSessionId,
 } from '../core/session/session'
 
 let sessionTmpDir: string
@@ -229,3 +238,57 @@ test('renameSessionTitle updates the display name listSessions returns', async (
   const summary = summaries.find((s) => s.sessionId === sessionId)
   expect(summary?.displayName).toBe('My renamed session')
 }, 30_000)
+
+test('listSessions skips a malformed metadata.json instead of throwing (advisor-found bug)', async () => {
+  sessionsRootTmpDir = await mkdtemp(path.join(os.tmpdir(), 'open-test-root-'))
+  const templateDir = path.join(
+    import.meta.dir,
+    '../../assets/session-template',
+  )
+
+  const good = await createSession(templateDir, sessionsRootTmpDir)
+
+  // A folder with genuinely broken metadata.json — the kind of thing that
+  // used to take the whole listing down with it.
+  const badDir = path.join(sessionsRootTmpDir, 'broken-session')
+  await mkdir(badDir, { recursive: true })
+  await writeFile(path.join(badDir, 'metadata.json'), '{ not valid json')
+
+  const summaries = await listSessions(sessionsRootTmpDir)
+
+  expect(summaries).toHaveLength(1)
+  expect(summaries[0].sessionId).toBe(good.sessionId)
+})
+
+test('hydrateSessionFromDisk restores claudeSessionId and continues turnCount after a simulated restart', async () => {
+  sessionTmpDir = await mkdtemp(path.join(os.tmpdir(), 'open-test-'))
+  const templateDir = path.join(
+    import.meta.dir,
+    '../../assets/session-template',
+  )
+  await createSessionFolder('test-session', templateDir, sessionTmpDir)
+
+  // Simulate a session that already had 2 turns and a real
+  // claudeSessionId, written to disk in a previous process lifetime.
+  const metadataPath = path.join(sessionTmpDir, 'metadata.json')
+  const metadata = JSON.parse(await readFile(metadataPath, 'utf-8'))
+  metadata.claude_session_id = 'fake-claude-session-id'
+  await writeFile(metadataPath, JSON.stringify(metadata))
+  await mkdir(path.join(sessionTmpDir, 'output', 'turn-1'), {
+    recursive: true,
+  })
+  await mkdir(path.join(sessionTmpDir, 'output', 'turn-2'), {
+    recursive: true,
+  })
+
+  const sessionId = 'test-session-restart-hydrate'
+  expect(getStatus(sessionId)).toBeUndefined() // never touched by this process
+
+  await hydrateSessionFromDisk(sessionId, sessionTmpDir)
+
+  expect(getStatus(sessionId)).toBe('closed')
+  expect(getClaudeSessionId(sessionId)).toBe('fake-claude-session-id')
+
+  reopenSession(sessionId)
+  expect(startTurn(sessionId)).toBe(3) // continues from 2, not restarting at 1
+})

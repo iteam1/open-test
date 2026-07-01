@@ -14,6 +14,7 @@ import {
   setClaudeSessionId,
   getClaudeSessionId,
   getStatus,
+  hydrateSession,
 } from '../core/session/session'
 import {
   sliceMessagesForTurn,
@@ -97,6 +98,10 @@ export type SessionSummary = {
  * closed, always). displayName comes from the SDK's own customTitle/
  * summary (design.md: not a field on Session itself), falling back to the
  * sessionId when there's no claudeSessionId yet (a session with no turns).
+ *
+ * A single malformed/partial metadata.json is skipped, not fatal — this
+ * runs on every Dashboard refresh and every idle-timeout tick (advisor-
+ * found bug: previously one bad folder threw and broke both).
  */
 export async function listSessions(
   sessionsRootDir: string,
@@ -109,30 +114,68 @@ export async function listSessions(
   for (const entry of entries) {
     if (!entry.isDirectory()) continue
 
-    const sessionDir = path.join(sessionsRootDir, entry.name)
-    const metadataPath = path.join(sessionDir, 'metadata.json')
-    if (!existsSync(metadataPath)) continue
+    try {
+      const sessionDir = path.join(sessionsRootDir, entry.name)
+      const metadataPath = path.join(sessionDir, 'metadata.json')
+      if (!existsSync(metadataPath)) continue
 
-    const metadata = JSON.parse(await readFile(metadataPath, 'utf-8'))
-    const claudeSessionId = metadata.claude_session_id as string
+      const metadata = JSON.parse(await readFile(metadataPath, 'utf-8'))
+      if (typeof metadata.session_id !== 'string') continue
 
-    let displayName = metadata.session_id as string
-    if (claudeSessionId) {
-      const info = await getSessionInfo(claudeSessionId)
-      displayName = info?.customTitle ?? info?.summary ?? displayName
+      const claudeSessionId = (metadata.claude_session_id as string) || ''
+
+      let displayName = metadata.session_id as string
+      if (claudeSessionId) {
+        const info = await getSessionInfo(claudeSessionId)
+        displayName = info?.customTitle ?? info?.summary ?? displayName
+      }
+
+      summaries.push({
+        sessionId: metadata.session_id,
+        claudeSessionId,
+        createdAt: metadata.created_at,
+        status: getStatus(metadata.session_id) ?? 'closed',
+        path: sessionDir,
+        displayName,
+      })
+    } catch {
+      continue
     }
-
-    summaries.push({
-      sessionId: metadata.session_id,
-      claudeSessionId,
-      createdAt: metadata.created_at,
-      status: getStatus(metadata.session_id) ?? 'closed',
-      path: sessionDir,
-      displayName,
-    })
   }
 
   return summaries
+}
+
+/**
+ * Loads a session's persisted claudeSessionId/turnCount into session.ts as
+ * 'closed' the first time this process encounters it — call this before
+ * startTurn whenever getStatus(sessionId) is undefined. Without it, a
+ * session from a previous app run looks brand new: the next push starts a
+ * fresh claudeSessionId (losing all prior context) and restarts turn
+ * numbering at 1, colliding with output/turn-1/ already on disk
+ * (advisor-found bug). No-ops harmlessly if metadata.json doesn't exist.
+ */
+export async function hydrateSessionFromDisk(
+  sessionId: string,
+  sessionDir: string,
+): Promise<void> {
+  const metadataPath = path.join(sessionDir, 'metadata.json')
+  if (!existsSync(metadataPath)) return
+
+  const metadata = JSON.parse(await readFile(metadataPath, 'utf-8'))
+  const claudeSessionId = (metadata.claude_session_id as string) || null
+
+  const outputDir = path.join(sessionDir, 'output')
+  let turnCount = 0
+  if (existsSync(outputDir)) {
+    const entries = await readdir(outputDir)
+    for (const entry of entries) {
+      const match = entry.match(/^turn-(\d+)$/)
+      if (match) turnCount = Math.max(turnCount, Number(match[1]))
+    }
+  }
+
+  hydrateSession(sessionId, claudeSessionId, turnCount)
 }
 
 /** Thin wrapper so ipc.ts doesn't need its own direct SDK import for one call (3.2's rename). */
@@ -335,6 +378,12 @@ export async function runTurnInFolder(
       claudeSessionIdBefore,
     )
   } finally {
+    // Narrow edge case, not fixable here: if a kill lands before the SDK
+    // ever echoes a session_id (only possible in the brief window right
+    // after a session's very first turn starts), claudeSessionId is still
+    // null and this block is skipped — any tokens already spent go
+    // unrecorded, since there's no claudeSessionId to read a transcript
+    // back from at all.
     const claudeSessionId = getClaudeSessionId(sessionId)
     if (claudeSessionId) {
       await updateMetadataClaudeSessionId(sessionDir, claudeSessionId)

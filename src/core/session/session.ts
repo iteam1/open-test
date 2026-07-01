@@ -79,18 +79,22 @@ export function startTurn(sessionId: string): number | false {
 
 /**
  * Call this once a turn's reply is fully received (or the turn failed), to
- * flip status back to idle. No-ops if status is already 'closed' — a
- * kill can land while this turn's own cleanup is still unwinding (the SDK
- * throwing per 1.4's finding takes a moment to propagate), and that
- * explicit close must not get silently reverted back to idle by this call
- * arriving after it.
+ * flip status back to idle. Returns false and does nothing if status is
+ * already 'closed' — a kill can land while this turn's own cleanup is
+ * still unwinding (the SDK throwing per 1.4's finding takes a moment to
+ * propagate), and that explicit close must not get silently reverted back
+ * to idle by this call arriving after it. The caller uses the return value
+ * to decide whether to actually announce 'idle' (advisor-found: emitting
+ * 'idle' unconditionally here raced an 'closed' emitted by the kill, and
+ * whichever one landed last in the renderer won).
  */
-export function endTurn(sessionId: string, now: number): void {
+export function endTurn(sessionId: string, now: number): boolean {
   const session = sessions.get(sessionId)
-  if (!session || session.status === 'closed') return
+  if (!session || session.status === 'closed') return false
   session.status = 'idle'
   session.lastActiveAt = now
   session.activeTurn = null
+  return true
 }
 
 /**
@@ -154,4 +158,32 @@ export function getChatLog(sessionId: string): unknown[] {
 
 export function appendToChatLog(sessionId: string, message: unknown): void {
   getOrCreate(sessionId).chatLog.push(message)
+}
+
+/**
+ * Loads a session's persisted state into memory as 'closed' — this
+ * process's in-memory Map starts empty on every launch, but metadata.json
+ * (claudeSessionId) and output/turn-<n>/ (turnCount) persist across
+ * restarts. Without this, a session touched in a previous run reads as
+ * "never seen" after a restart: getStatus() returns undefined (not
+ * 'closed'), so ipc.ts's reopenSession check never fires, startTurn treats
+ * it as brand new, and the next push silently starts a fresh
+ * claudeSessionId (losing all prior context) while colliding turn-1's
+ * output with what's already on disk (advisor-found bug). No-ops if this
+ * sessionId is already known in memory, so it never clobbers live state.
+ */
+export function hydrateSession(
+  sessionId: string,
+  claudeSessionId: string | null,
+  turnCount: number,
+): void {
+  if (sessions.has(sessionId)) return
+  sessions.set(sessionId, {
+    status: 'closed',
+    turnCount,
+    lastActiveAt: 0,
+    claudeSessionId,
+    activeTurn: null,
+    chatLog: [],
+  })
 }

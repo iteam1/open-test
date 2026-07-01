@@ -11,6 +11,7 @@ import {
   setClaudeSessionId,
   getChatLog,
   appendToChatLog,
+  hydrateSession,
 } from './session'
 
 test('startTurn sets status to running, endTurn returns it to idle', () => {
@@ -22,7 +23,7 @@ test('startTurn sets status to running, endTurn returns it to idle', () => {
   expect(turnNumber).toBe(1)
   expect(getStatus(sessionId)).toBe('running')
 
-  endTurn(sessionId, 1000)
+  expect(endTurn(sessionId, 1000)).toBe(true)
   expect(getStatus(sessionId)).toBe('idle')
 })
 
@@ -119,10 +120,41 @@ test('endTurn arriving after killSession does not revert the close (advisor-foun
 
   // ...then the original send-message handler's `finally` still fires,
   // since the SDK's throw takes a moment to propagate up through it.
-  endTurn(sessionId, 1000)
+  // Returns false — this is what tells ipc.ts not to also emit 'idle'
+  // after 'closed' already went out (a second advisor-found bug: the two
+  // events could arrive in either order, and 'idle' landing last showed a
+  // wrong badge until the next send).
+  expect(endTurn(sessionId, 1000)).toBe(false)
 
   // Must still be closed — not silently reverted to idle.
   expect(getStatus(sessionId)).toBe('closed')
+})
+
+test('hydrateSession restores a session touched in a previous process lifetime as closed (advisor-found restart bug)', () => {
+  const sessionId = 'session-j'
+
+  expect(getStatus(sessionId)).toBeUndefined()
+  hydrateSession(sessionId, 'claude-session-from-before-restart', 2)
+
+  expect(getStatus(sessionId)).toBe('closed')
+  expect(getClaudeSessionId(sessionId)).toBe(
+    'claude-session-from-before-restart',
+  )
+
+  reopenSession(sessionId)
+  expect(startTurn(sessionId)).toBe(3) // continues from 2, not restarting at 1
+})
+
+test('hydrateSession does not clobber a session already live in memory', () => {
+  const sessionId = 'session-k'
+
+  startTurn(sessionId)
+  setClaudeSessionId(sessionId, 'real-live-claude-session')
+
+  hydrateSession(sessionId, 'stale-disk-value', 99)
+
+  expect(getStatus(sessionId)).toBe('running') // unchanged
+  expect(getClaudeSessionId(sessionId)).toBe('real-live-claude-session') // unchanged
 })
 
 test('claudeSessionId round-trips for use by resume', () => {
