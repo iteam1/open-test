@@ -18,6 +18,8 @@ CLAUDE.local.md
 # Node.js
 .env
 .env.*
+# .env.* above would swallow the committed example file — carve it out.
+!.env.example
 node_modules/
 out/
 dist/

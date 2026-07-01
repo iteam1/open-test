@@ -10,6 +10,7 @@ import {
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import os from 'node:os'
+import { startup } from '@anthropic-ai/claude-agent-sdk'
 import {
   createSessionFolder,
   runTurn,
@@ -488,3 +489,64 @@ test('listLatestArtifacts returns turn 0 and no files for a session with no turn
   const result = await listLatestArtifacts(sessionTmpDir)
   expect(result).toEqual({ turn: 0, files: [] })
 })
+
+test('6.1: options.env routes session API traffic to ANTHROPIC_BASE_URL', async () => {
+  // A local listener standing in for a different API endpoint. It records
+  // every request path and rejects — the point is only to prove the
+  // subprocess's traffic ARRIVES here, not to serve a real reply.
+  const hits: string[] = []
+  const server = Bun.serve({
+    port: 0,
+    fetch(req) {
+      hits.push(new URL(req.url).pathname)
+      return new Response(
+        JSON.stringify({
+          type: 'error',
+          error: { type: 'authentication_error', message: 'test endpoint' },
+        }),
+        { status: 401, headers: { 'content-type': 'application/json' } },
+      )
+    },
+  })
+
+  // Drive startup()/query() directly with the same options.env spread that
+  // runTurn builds, so this proves the exact wiring without depending on a
+  // full turn completing. A rejected endpoint is treated as retryable by
+  // the CLI (it never throws and never emits a session_id, so runTurn's
+  // kill path can't interrupt it) — so we poll for the first /v1/messages
+  // hit, then stop, rather than awaiting a turn that would loop forever.
+  const warm = await startup({
+    options: {
+      cwd: os.tmpdir(),
+      env: {
+        ...process.env,
+        ANTHROPIC_BASE_URL: `http://localhost:${server.port}`,
+      },
+    },
+    initializeTimeoutMs: 20_000,
+  })
+
+  const query = warm.query('Reply with the word HELLO.')
+  const drain = (async () => {
+    try {
+      for await (const _m of query) void _m
+    } catch {
+      // ignore — the endpoint rejects; we only care that it was reached
+    }
+  })()
+
+  const deadline = Date.now() + 30_000
+  while (
+    !hits.some((p) => p.includes('/v1/messages')) &&
+    Date.now() < deadline
+  ) {
+    await new Promise((r) => setTimeout(r, 200))
+  }
+  await query.interrupt().catch(() => {})
+  await drain.catch(() => {})
+  server.stop(true)
+
+  // The proof: the subprocess actually sent its Messages API call to OUR
+  // endpoint, i.e. options.env's ANTHROPIC_BASE_URL took effect.
+  expect(hits.some((p) => p.includes('/v1/messages'))).toBe(true)
+}, 60_000)

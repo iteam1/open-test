@@ -145,20 +145,21 @@ Tasks 1.2-1.6 are throwaway scripts in `scratch/`, not app code — the goal is 
 
 ## Phase 6 — Configuration and extensibility
 
-- **6.1** [ ] `.env` (gitignored) holds `ANTHROPIC_BASE_URL`/`ANTHROPIC_MODEL`/`ANTHROPIC_API_KEY`; a committed `.env.example` documents them with empty/placeholder values. Bun auto-loads `.env` with no extra package (confirmed empirically — `process.env` picks it up with zero config); the app reads `process.env` and passes it explicitly via `query()`'s own `options.env` field (confirmed: a real, typed field on `Options`), rather than relying on implicit subprocess inheritance
+- **6.1** [x] `.env` (gitignored) holds `ANTHROPIC_BASE_URL`/`ANTHROPIC_MODEL`/`ANTHROPIC_API_KEY`; a committed `.env.example` documents them with empty/placeholder values. Bun auto-loads `.env` with no extra package (confirmed empirically — `process.env` picks it up with zero config); the app reads `process.env` and passes it explicitly via `query()`'s own `options.env` field (confirmed: a real, typed field on `Options`), rather than relying on implicit subprocess inheritance
   Test: set a different value in `.env`, confirm `query()` actually uses it — e.g. point `ANTHROPIC_BASE_URL` at a different endpoint and confirm requests go there
+  Note: `.env.*` in `.gitignore` was swallowing the committed `.env.example` — added a `!.env.example` negation. `options.env` REPLACES the subprocess env (per `sdk.d.ts`), so `runTurn` spreads `process.env` into it; `ANTHROPIC_MODEL` is also passed through as `options.model`. Live test drives `startup()`/`query()` at a local listener and asserts the `/v1/messages` request actually arrives there.
 
-- **6.2** [ ] Generic skill support: anything dropped into a session's `.claude/skills/` beyond the fragment ones is picked up
-  Test: add a test skill, confirm Claude uses it
+- **6.2** [x] Generic skill support: anything dropped into a session's `.claude/skills/` beyond the fragment ones is picked up
+  Test: live — a non-shipped `marker-check` skill dropped into a session's `.claude/skills/` is followed by Claude (its marker lands on disk).
 
-- **6.3** [ ] Subagent support: `.claude/agents/*`
-  Test: add a subagent, confirm Claude can dispatch to it
+- **6.3** [x] Subagent support: `.claude/agents/*`
+  Test: live — Claude dispatches to the shipped `a11y-reader` subagent and it completes the read task.
 
-- **6.4** [ ] A lower-cost model (e.g. Haiku) subagent for accessibility-tree reads during live Agent CLI driving, keeping the primary model for judgment calls (depends on 6.3)
-  Test: during a live test with a read-heavy inspection step, check the subagent transcript at `~/.claude/projects/<slug>/<claude_session_id>/subagents/agent-*.jsonl` (per `overview.md`'s subagent storage) for the cheap model — `usage.json`'s `model` field is per-turn, not per-subagent-call, so it can't show this
+- **6.4** [x] A lower-cost model (e.g. Haiku) subagent for accessibility-tree reads during live Agent CLI driving, keeping the primary model for judgment calls (depends on 6.3)
+  Test: the shipped `a11y-reader` agent (`assets/session-template/.claude/agents/`, `model: haiku`, read-only tools) is dispatched live; its subagent transcript at `~/.claude/projects/<slug>/<claude_session_id>/subagents/agent-*.jsonl` confirms it ran on haiku — which `usage.json`'s per-turn `model` field can't show.
 
-- **6.5** [ ] Custom output folder based on a skill's own definition
-  Test: confirm artifacts land where that skill specifies
+- **6.5** [x] Custom output folder based on a skill's own definition
+  Test: live — the `marker-check` skill's own definition names `output/marker-check/` as its output location, and the artifact lands there.
 
 ## Phase 7 — Input, engines, artifacts, guardrails
 

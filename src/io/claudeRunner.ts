@@ -341,6 +341,16 @@ export async function runTurn(
         cwd: sessionDir,
         permissionMode: 'bypassPermissions',
         allowDangerouslySkipPermissions: true,
+        // 6.1: pass the environment explicitly instead of relying on
+        // implicit subprocess inheritance. Bun auto-loads .env into
+        // process.env with zero config, so ANTHROPIC_BASE_URL /
+        // ANTHROPIC_MODEL / ANTHROPIC_API_KEY from .env land here.
+        // options.env REPLACES the subprocess env entirely (per sdk.d.ts),
+        // so spread process.env to keep PATH/HOME/etc.
+        env: { ...process.env },
+        ...(process.env.ANTHROPIC_MODEL
+          ? { model: process.env.ANTHROPIC_MODEL }
+          : {}),
         ...(resumeClaudeSessionId ? { resume: resumeClaudeSessionId } : {}),
         ...(mcpServers ? { mcpServers } : {}),
       },

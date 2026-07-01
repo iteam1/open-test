@@ -23,6 +23,8 @@ open-test/
 │   │   │   │   ├── fragment-lookup/SKILL.md
 │   │   │   │   ├── fragment-learn/SKILL.md
 │   │   │   │   └── fragment-combine/SKILL.md
+│   │   │   ├── agents/
+│   │   │   │   └── a11y-reader.md   # 6.4: read-only inspector on a cheap (haiku) model
 │   │   │   └── commands/   # room to grow; empty for now
 │   │   ├── CLAUDE.md   # testing guardrails for sessions — NOT this repo's own /CLAUDE.md, a completely different thing with a completely different audience
 │   │   └── .mcp.json   # real external servers only, e.g. mcp-server-paint — the in-process fragment server can't go here
