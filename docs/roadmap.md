@@ -5,10 +5,10 @@ Implements `design.md` toward `overview.md`, applying `contribute.md`. Every tas
 Verified against real source before writing this: `/home/locch/Works/claude-agent-sdk-typescript` (docs/examples only — no implementation there; verified against the actual published `@anthropic-ai/claude-agent-sdk` package instead), `/home/locch/Works/playwright` (the real monorepo), `/home/locch/Works/open-design`, `/home/locch/Works/mcp-server-paint`. Findings that changed how this roadmap is sequenced:
 
 - **No reference implementation exists anywhere for streaming-input `query()`** (constructing the `AsyncIterable<SDKUserMessage>`) or for **IPC-streaming a reply to a renderer** (open-design's equivalent runs over HTTP/SSE between a webpage and a separate daemon, not Electron IPC at all). Both are genuinely novel here — Phase 1 proves each in isolation, with fake/minimal data, before anything else is built on top of them.
-- open-design is SQLite-backed and spawns ~20 CLI adapters directly — it is not a plain-file, Agent-SDK precedent for this app despite `overview.md`'s comparison. Session status held in-memory-only, never persisted, *does* match its pattern (`apps/daemon/src/runs.ts`) — that part is validated, not just assumed.
+- open-design is SQLite-backed and spawns ~20 CLI adapters directly — it is not a plain-file, Agent-SDK precedent for this app despite `overview.md`'s comparison. Session status held in-memory-only, never persisted, _does_ match its pattern (`apps/daemon/src/runs.ts`) — that part is validated, not just assumed.
 - `@playwright/cli` (Agent CLI) is real and has a working implementation in-tree (`packages/playwright-core/src/tools/cli-client/`), but the published npm package is hosted outside this monorepo — install it from npm, don't try to build it locally.
 - `mcp-server-paint` holds one open document as a bare module-level global (`store.py`) — `new_document`/`open_image` must happen before any `draw_*` call.
-- **After a round of adversarial review**, the session-template copy mechanism was moved from Phase 5 into Phase 2 (it was previously introduced *after* three phases already depended on a hand-built folder instead), `usage.json`/`output/` creation was pulled forward to where they're first needed, and three uncovered mechanisms (fragment near-match dedup, `scope` ranking precedence, cheap-model read tiering) got tasks. A precursor task (1.1) now installs the real SDK and checks its types before anything is built against them, instead of trusting research citations alone.
+- **After a round of adversarial review**, the session-template copy mechanism was moved from Phase 5 into Phase 2 (it was previously introduced _after_ three phases already depended on a hand-built folder instead), `usage.json`/`output/` creation was pulled forward to where they're first needed, and three uncovered mechanisms (fragment near-match dedup, `scope` ranking precedence, cheap-model read tiering) got tasks. A precursor task (1.1) now installs the real SDK and checks its types before anything is built against them, instead of trusting research citations alone.
 
 ## Phase 0 — Scaffold (done)
 
@@ -25,22 +25,28 @@ Verified against real source before writing this: `/home/locch/Works/claude-agen
 
 Tasks 1.2-1.6 are throwaway scripts in `scratch/`, not app code — the goal is derisking, not shipping. Delete `scratch/` once Phase 2 wires the real versions in.
 
-- **1.1** [ ] `bun add @anthropic-ai/claude-agent-sdk`; confirm against the installed package's real `sdk.d.ts` (not CHANGELOG prose) that `query()`'s `prompt` accepts `string | AsyncIterable<SDKUserMessage>`, `tool()` takes a Zod raw shape, `createSdkMcpServer()` exists, `interrupt()`/`setPermissionMode()` are documented streaming-only, and `getSessionMessages()`/`listSessions()`/`renameSession()`/`startup()` are standalone exports
+- **1.1** [x] `bun add @anthropic-ai/claude-agent-sdk`; confirm against the installed package's real `sdk.d.ts` (not CHANGELOG prose) that `query()`'s `prompt` accepts `string | AsyncIterable<SDKUserMessage>`, `tool()` takes a Zod raw shape, `createSdkMcpServer()` exists, `interrupt()`/`setPermissionMode()` are documented streaming-only, and `getSessionMessages()`/`listSessions()`/`renameSession()`/`startup()` are standalone exports
   Test: grep the installed `sdk.d.ts` for each symbol, confirm signatures match what this roadmap assumes — fix this doc if any don't
 
-- **1.2** [ ] Bare script: build an `AsyncIterable<SDKUserMessage>` as an async generator fed by a manually-pushed queue (no existing example to copy — confirmed by 1.1 that the type exists, but nobody's shipped a reference construction). Call `query()` with it once.
+- **1.2** [x] Bare script: build an `AsyncIterable<SDKUserMessage>` as an async generator fed by a manually-pushed queue (no existing example to copy — confirmed by 1.1 that the type exists, but nobody's shipped a reference construction). Call `query()` with it once.
   Test: push one message, print Claude's reply, confirm the process stays alive afterward (check it's still in the process list) instead of exiting
 
-- **1.3** [ ] Push a second message into the same still-open iterable
+- **1.3** [x] Push a second message into the same still-open iterable
   Test: see a second reply, and confirm via `ps` that only ONE `claude` subprocess exists the whole time — never two
 
 - **1.4** [ ] Call `interrupt()` mid-reply
   Test: the streamed reply visibly stops short, compared to letting an identical prompt finish normally
+  Finding: it does stop short, but not cleanly. Calling `interrupt()` while the first assistant chunk is streaming crashes the read loop with "Query closed before response received" (thrown from `sdk.mjs`'s cleanup path), instead of returning a graceful stopped result. Confirmed with `ps --ppid <script pid>` snapshots taken right before `interrupt()` and right after the crash is caught: the CLI subprocess (visible by PID before) is gone from the list after. So `interrupt()` stops the reply by taking the subprocess down with it, not by leaving it running for a next turn. Left unchecked — this isn't the safe "stop and keep going" primitive Phase 2 needs; revisit before relying on it.
+  Context: the SDK's own `Query.interrupt()` doc comment promises a graceful stop-and-return-control, but that doesn't hold here. GitHub issue #120 (`anthropics/claude-agent-sdk-typescript`, open, unanswered) shows the newer V2 API has the same gap — no interrupt-without-closing at all, only `close()`, which kills the session outright. This is a known, SDK-wide limitation, not a bug specific to this test.
+  Solution: wrap `interrupt()` in try/catch and design Phase 2 around the subprocess dying, not surviving — 2.5's kill flow and 2.7's resume-based recovery already assume this.
 
 - **1.5** [ ] Call `getSessionMessages()` after 3 pushed turns
   Test: returned message count matches — proves this can read state independent of whether `query()` is still running
+  Finding: `getSessionMessages()` itself works fine — it read the transcript after the live `query()` loop had already exited, independent of whether the process was still running. But the count didn't match: pushing 3 messages (ONE/TWO/THREE) back-to-back with no delay between yields returned 5 entries, not 6. The second and third pushed messages got merged into a single user turn (`"...TWO\n...THREE"`) instead of landing as two separate turns, because they were pulled from the generator faster than the subprocess dispatched the previous one — unlike 1.2/1.3, which paced pushes with a delay. Separately, the final assistant reply appeared twice as distinct array entries sharing the identical `message.id`, 4ms apart — a duplicate in the transcript, not two different replies. Left unchecked — pushed-message count and transcript-turn count aren't guaranteed 1:1 without pacing, and 2.6's usage tracker (which folds `getSessionMessages()` output into per-turn token totals) needs to dedupe by `message.id` or it'll double-count a turn's usage.
+  Context: the SDK's own canonical streaming-input example (official docs) paces pushed messages with a 2-second `setTimeout` between yields — this test skipped that pacing, unlike 1.2/1.3. That's the likely root cause of the merge, not an SDK bug. (A `shouldQuery` field exists on `SDKUserMessage`, but its docs make no mention of message-merging — not confirmed as the mechanism, don't rely on it as the explanation.)
+  Solution: pace pushed messages with a delay, same as 1.2/1.3. That won't fix the duplicate `message.id` on its own though — 2.6's usage tracker still needs to dedupe by `message.id` regardless of pacing.
 
-- **1.6** [ ] Bare Electron test, separate from 1.2-1.5: `contextBridge` exposes one function; renderer calls it; main process replies with 3 fake chunks via `setInterval`, no real Claude involved
+- **1.6** [x] Bare Electron test, separate from 1.2-1.5: `contextBridge` exposes one function; renderer calls it; main process replies with 3 fake chunks via `setInterval`, no real Claude involved
   Test: see all 3 chunks logged in the renderer's devtools console, in order, with visible delay between them
 
 ## Phase 2 — Combine: real session + real streaming + real IPC
@@ -57,14 +63,14 @@ Tasks 1.2-1.6 are throwaway scripts in `scratch/`, not app code — the goal is 
 - **2.3** [ ] Wire 1.6's fake-chunk IPC channel to real streamed reply chunks from 2.2
   Test: type a prompt in a minimal chat input, see Claude's real reply stream in live
 
-- **2.4** [ ] Session status in memory: `idle` → `running` on push — also creates `output/turn-<n>/` for the new turn (`n` = count of user messages pushed so far, including this one) before the message goes in — back to `idle` on reply completion; status exposed to renderer over the same IPC channel
-  Test: unit test asserts status mid-turn vs. after, and that `output/turn-<n>/` exists as soon as the turn starts, not just once something's written into it; manual UI check shows the status transition
+- **2.4** [ ] Session status in memory: `idle` → `running` on push — also creates `output/turn-<n>/` for the new turn (`n` = count of user messages pushed so far, including this one) before the message goes in — back to `idle` on reply completion; status exposed to renderer over the same IPC channel. A push arriving while status is `running` is rejected, not queued or forwarded — the design (`design.md`'s state diagram) already assumes pushes only happen from `idle`, and 1.5 found what goes wrong when that's not enforced: unpaced pushes into an already-running stream merge into one turn instead of landing as two
+  Test: unit test asserts status mid-turn vs. after, and that `output/turn-<n>/` exists as soon as the turn starts, not just once something's written into it; a second test pushes twice in quick succession and confirms the second push while `running` is rejected, not silently merged into the first turn; manual UI check shows the status transition
 
-- **2.5** [ ] Idle timeout (fake clock in tests) closes the stream only from `idle`; explicit kill calls `interrupt()` first if running, then closes
-  Test: idle past N minutes closes it; a turn in progress blocks the close. Manual: kill mid-turn, confirm it stops
+- **2.5** [ ] Idle timeout (fake clock in tests) closes the stream only from `idle`; explicit kill calls `interrupt()` first if running, then closes. Per 1.4's finding, that `interrupt()` call throws instead of returning cleanly (it takes the subprocess down with it) — the kill flow must catch that error internally, not let it propagate
+  Test: idle past N minutes closes it; a turn in progress blocks the close. Manual: kill mid-turn, confirm the session reaches `closed` AND the app process itself stays up — not just that the reply stops
 
-- **2.6** [ ] Usage tracker: after each turn, `getSessionMessages()` since the last one, hand-parse `usage`, fold in token counts from any subagent `.jsonl` files spawned during that turn (per `overview.md`'s "any subagent files used in that turn"), append one `TurnUsage` to the `usage.json` created in 2.1b
-  Test: unit test against a fixture transcript for the token/cost math, including a fixture turn that spawned a subagent — confirm the subagent's own tokens are folded into that turn's total, not just the main transcript's; integration test after one real turn
+- **2.6** [ ] Usage tracker: after each turn, `getSessionMessages()` since the last one, dedupe by `message.id` before parsing (1.5 found the transcript can carry the same reply twice under the identical id), hand-parse `usage`, fold in token counts from any subagent `.jsonl` files spawned during that turn (per `overview.md`'s "any subagent files used in that turn"), append one `TurnUsage` to the `usage.json` created in 2.1b
+  Test: unit test against a fixture transcript for the token/cost math, including a fixture turn that spawned a subagent — confirm the subagent's own tokens are folded into that turn's total, not just the main transcript's; a second fixture with a duplicated `message.id` entry confirms it's counted once, not twice; integration test after one real turn
 
 - **2.7** [ ] Resume: a `closed` session gets a fresh streaming connection via `options.resume`, same `claudeSessionId`
   Test: close, reopen, ask what you said before closing
