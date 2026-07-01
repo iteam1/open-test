@@ -307,8 +307,17 @@ async function* messages(prompt: string): AsyncGenerator<SDKUserMessage> {
  * so the bar for turning it on here was a specific acknowledgment, which
  * has now been given.
  */
-/** What runTurn observes about the turn — the SDK's own real cost, captured from the streamed `result` event (null if the turn ended before one arrived, e.g. an interrupt). */
-export type TurnResult = { costUsd: number | null }
+/**
+ * What runTurn observes about the turn, captured live from the stream:
+ * - costUsd: the SDK's own real cost from the `result` event (null if the
+ *   turn ended before one arrived, e.g. an interrupt).
+ * - usedFragmentTool: whether a run_fragment/save_fragment tool call
+ *   appeared. Captured live rather than re-derived from getSessionMessages
+ *   afterward, because the transcript may not have flushed the tool_use
+ *   assistant message yet at read time — which made the derived flag
+ *   (and token counts) intermittently miss a fragment turn.
+ */
+export type TurnResult = { costUsd: number | null; usedFragmentTool: boolean }
 
 export async function runTurn(
   sessionDir: string,
@@ -334,6 +343,7 @@ export async function runTurn(
     : undefined
 
   let costUsd: number | null = null
+  let usedFragmentTool = false
 
   try {
     const warmQuery = await startup({
@@ -365,6 +375,7 @@ export async function runTurn(
         session_id?: string
         type?: string
         total_cost_usd?: number
+        message?: { content?: unknown }
       }
       if (sessionId && m.session_id) {
         setClaudeSessionId(sessionId, m.session_id)
@@ -372,6 +383,23 @@ export async function runTurn(
       // The SDK's own real turn cost — no rate table to go stale.
       if (m.type === 'result' && typeof m.total_cost_usd === 'number') {
         costUsd = m.total_cost_usd
+      }
+      // Fragment-tool use, captured live (see TurnResult) so it never
+      // depends on the transcript having flushed by the time we read it.
+      if (m.type === 'assistant' && Array.isArray(m.message?.content)) {
+        for (const block of m.message.content as {
+          type?: string
+          name?: string
+        }[]) {
+          if (
+            block.type === 'tool_use' &&
+            typeof block.name === 'string' &&
+            (block.name.includes('run_fragment') ||
+              block.name.includes('save_fragment'))
+          ) {
+            usedFragmentTool = true
+          }
+        }
       }
       onMessage(message)
     }
@@ -382,7 +410,7 @@ export async function runTurn(
     await browser?.close()
   }
 
-  return { costUsd }
+  return { costUsd, usedFragmentTool }
 }
 
 async function updateMetadataClaudeSessionId(
@@ -442,28 +470,6 @@ async function readRawUsagesFromJsonl(filePath: string): Promise<RawUsage[]> {
  * total, and appends one TurnUsage entry to usage.json (created empty by
  * createSessionFolder in 2.1b).
  */
-/**
- * Did this turn call run_fragment or save_fragment (2.6/5.10)? MCP tool
- * calls surface in the transcript as tool_use blocks named
- * mcp__fragments__<tool>. Cheap to derive here while we already have the
- * turn's messages; otherwise unrecoverable later without re-scanning.
- */
-function turnUsedFragmentTool(turnMessages: { message: unknown }[]): boolean {
-  return turnMessages.some((m) => {
-    const content = (m.message as { content?: unknown }).content
-    if (!Array.isArray(content)) return false
-    return content.some((block) => {
-      const name = block as { type?: string; name?: string }
-      return (
-        name.type === 'tool_use' &&
-        typeof name.name === 'string' &&
-        (name.name.includes('run_fragment') ||
-          name.name.includes('save_fragment'))
-      )
-    })
-  })
-}
-
 export async function recordTurnUsage(
   sessionDir: string,
   claudeSessionId: string,
@@ -471,6 +477,7 @@ export async function recordTurnUsage(
   startedAt: string,
   subagentJsonlPaths: string[],
   costUsd: number,
+  usedFragmentTool: boolean,
 ) {
   const allMessages = await getSessionMessages(claudeSessionId)
   const turnMessages = sliceMessagesForTurn(allMessages, turnNumber)
@@ -494,7 +501,7 @@ export async function recordTurnUsage(
     new Date().toISOString(),
     model,
     [...mainUsages, ...subagentUsages],
-    turnUsedFragmentTool(turnMessages), // 5.10 / 2.6
+    usedFragmentTool, // 5.10 / 2.6 — captured live in runTurn, not re-derived here
     costUsd, // the SDK's real total_cost_usd, captured from the result event
   )
 
@@ -535,7 +542,7 @@ export async function runTurnInFolder(
     ? await listSubagentFiles(claudeSessionIdBefore, sessionDir)
     : []
 
-  let turnResult: TurnResult = { costUsd: null }
+  let turnResult: TurnResult = { costUsd: null, usedFragmentTool: false }
   try {
     turnResult = await runTurn(
       sessionDir,
@@ -571,6 +578,7 @@ export async function runTurnInFolder(
         startedAt,
         newSubagentFiles,
         turnResult.costUsd ?? 0, // SDK's real turn cost; 0 if the turn ended before a result event
+        turnResult.usedFragmentTool, // captured live from the stream in runTurn
       )
     }
   }
