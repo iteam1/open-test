@@ -5,8 +5,6 @@ import os from 'node:os'
 import {
   startup,
   getSessionMessages,
-  getSessionInfo,
-  renameSession,
   SDKUserMessage,
 } from '@anthropic-ai/claude-agent-sdk'
 import {
@@ -128,7 +126,9 @@ export type SessionSummary = {
   createdAt: string
   status: 'idle' | 'running' | 'closed'
   path: string
-  displayName: string
+  // Free-text label from the new-session modal (or edited later). The
+  // renderer shows the sessionId as the card's identity and this — or the
+  // created date, when it's empty — as the secondary line.
   description: string
 }
 
@@ -137,9 +137,8 @@ export type SessionSummary = {
  * metadata.json with its in-memory status (3.1) — a session this process
  * never touched reads as 'closed', regardless of what a stale metadata.json
  * might imply (design.md's invariant: no live connection in memory means
- * closed, always). displayName comes from the SDK's own customTitle/
- * summary (design.md: not a field on Session itself), falling back to the
- * sessionId when there's no claudeSessionId yet (a session with no turns).
+ * closed, always). The renderer identifies each card by its sessionId and
+ * shows the description (or the created date, when empty) beneath it.
  *
  * A single malformed/partial metadata.json is skipped, not fatal — this
  * runs on every Dashboard refresh and every idle-timeout tick (advisor-
@@ -164,26 +163,14 @@ export async function listSessions(
       const metadata = JSON.parse(await readFile(metadataPath, 'utf-8'))
       if (typeof metadata.session_id !== 'string') continue
 
-      const claudeSessionId = (metadata.claude_session_id as string) || ''
-      const description =
-        typeof metadata.description === 'string' ? metadata.description : ''
-
-      // Display-name priority: the SDK's own title once it has one, else the
-      // creation-time description, else the raw session id.
-      let displayName = description || (metadata.session_id as string)
-      if (claudeSessionId) {
-        const info = await getSessionInfo(claudeSessionId)
-        displayName = info?.customTitle ?? info?.summary ?? displayName
-      }
-
       summaries.push({
         sessionId: metadata.session_id,
-        claudeSessionId,
+        claudeSessionId: (metadata.claude_session_id as string) || '',
         createdAt: metadata.created_at,
         status: getStatus(metadata.session_id) ?? 'closed',
         path: sessionDir,
-        displayName,
-        description,
+        description:
+          typeof metadata.description === 'string' ? metadata.description : '',
       })
     } catch {
       continue
@@ -258,12 +245,21 @@ export async function hydrateSessionFromDisk(
   hydrateSession(sessionId, claudeSessionId, turnCount)
 }
 
-/** Thin wrapper so ipc.ts doesn't need its own direct SDK import for one call (3.2's rename). */
-export async function renameSessionTitle(
-  claudeSessionId: string,
-  title: string,
+/**
+ * Sets a session's description in its metadata.json — the editable label
+ * the Dashboard shows under the session id. Works at any time (unlike the
+ * SDK's renameSession, this needs no claudeSessionId, so it's available
+ * before a session has ever run a turn).
+ */
+export async function updateSessionDescription(
+  sessionsRootDir: string,
+  sessionId: string,
+  description: string,
 ) {
-  await renameSession(claudeSessionId, title)
+  const metadataPath = path.join(sessionsRootDir, sessionId, 'metadata.json')
+  const metadata = JSON.parse(await readFile(metadataPath, 'utf-8'))
+  metadata.description = description
+  await writeFile(metadataPath, JSON.stringify(metadata))
 }
 
 /**

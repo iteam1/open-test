@@ -56,24 +56,21 @@ export function Dashboard({ onOpenSession }: Props) {
     onOpenSession(sessionId)
   }
 
-  function startRename(session: SessionSummary) {
+  function startEditDescription(session: SessionSummary) {
     setRenamingId(session.sessionId)
-    setRenameValue(session.displayName)
+    setRenameValue(session.description)
   }
 
-  async function commitRename(session: SessionSummary) {
+  async function commitDescription(session: SessionSummary) {
     setRenamingId(null)
-    const title = renameValue.trim()
-    if (!session.claudeSessionId || !title || title === session.displayName) {
-      return
-    }
+    const description = renameValue.trim()
+    if (description === session.description) return
     try {
-      await window.api.renameSession(session.claudeSessionId, title)
+      await window.api.setDescription(session.sessionId, description)
       await refresh()
     } catch {
-      // Rename failed server-side (e.g. a stale/invalid claudeSessionId) —
-      // nothing to recover client-side, but don't leave an unhandled
-      // rejection (advisor-found gap).
+      // Writing the description failed (e.g. the folder vanished) — nothing
+      // to recover client-side, but don't leave an unhandled rejection.
     }
   }
 
@@ -118,32 +115,34 @@ export function Dashboard({ onOpenSession }: Props) {
                   {columnSessions.map((session) => (
                     <div className="session-card" key={session.sessionId}>
                       <div className="session-card-title-row">
-                        {renamingId === session.sessionId ? (
-                          <input
-                            className="session-card-title-input"
-                            value={renameValue}
-                            autoFocus
-                            onChange={(e) => setRenameValue(e.target.value)}
-                            onBlur={() => commitRename(session)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') commitRename(session)
-                              if (e.key === 'Escape') setRenamingId(null)
-                            }}
-                          />
-                        ) : (
-                          <span className="session-card-title">
-                            {session.displayName}
-                          </span>
-                        )}
+                        <span className="session-card-title">
+                          {session.sessionId}
+                        </span>
                         <span
                           className={`status-badge status-${session.status}`}
                         >
                           {session.status}
                         </span>
                       </div>
-                      <div className="session-card-meta">
-                        {new Date(session.createdAt).toLocaleString()}
-                      </div>
+                      {renamingId === session.sessionId ? (
+                        <input
+                          className="session-card-desc-input"
+                          value={renameValue}
+                          autoFocus
+                          placeholder="description"
+                          onChange={(e) => setRenameValue(e.target.value)}
+                          onBlur={() => commitDescription(session)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') commitDescription(session)
+                            if (e.key === 'Escape') setRenamingId(null)
+                          }}
+                        />
+                      ) : (
+                        <div className="session-card-meta">
+                          {session.description ||
+                            new Date(session.createdAt).toLocaleString()}
+                        </div>
+                      )}
                       <div className="session-card-actions">
                         <button
                           type="button"
@@ -155,15 +154,9 @@ export function Dashboard({ onOpenSession }: Props) {
                         <button
                           type="button"
                           className="btn btn-secondary btn-sm"
-                          onClick={() => startRename(session)}
-                          disabled={!session.claudeSessionId}
-                          title={
-                            session.claudeSessionId
-                              ? undefined
-                              : 'Rename becomes available after the first turn'
-                          }
+                          onClick={() => startEditDescription(session)}
                         >
-                          Rename
+                          Edit
                         </button>
                         {session.status !== 'closed' && (
                           <button

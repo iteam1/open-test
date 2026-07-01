@@ -5,7 +5,7 @@ import {
   runTurnInFolder,
   createSession,
   listSessions,
-  renameSessionTitle,
+  updateSessionDescription,
   hydrateSessionFromDisk,
   listLatestArtifacts,
 } from '../io/claudeRunner'
@@ -75,12 +75,9 @@ export function registerIpc(
   })
 
   ipcMain.handle(
-    'rename-session',
-    async (_event, claudeSessionId: string, title: string) => {
-      if (!claudeSessionId) {
-        throw new Error('Cannot rename a session before its first turn')
-      }
-      await renameSessionTitle(claudeSessionId, title)
+    'set-description',
+    async (_event, sessionId: string, description: string) => {
+      await updateSessionDescription(sessionsRootDir, sessionId, description)
     },
   )
 

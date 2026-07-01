@@ -4,8 +4,8 @@ contextBridge.exposeInMainWorld('api', {
   createSession: (opts?: { sessionId?: string; description?: string }) =>
     ipcRenderer.invoke('create-session', opts),
   listSessions: () => ipcRenderer.invoke('list-sessions'),
-  renameSession: (claudeSessionId: string, title: string) =>
-    ipcRenderer.invoke('rename-session', claudeSessionId, title),
+  setDescription: (sessionId: string, description: string) =>
+    ipcRenderer.invoke('set-description', sessionId, description),
   getChatLog: (sessionId: string) =>
     ipcRenderer.invoke('get-chat-log', sessionId),
   getArtifacts: (sessionId: string) =>

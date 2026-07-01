@@ -10,7 +10,7 @@ declare global {
         description?: string
       }): Promise<{ sessionId: string; sessionDir: string }>
       listSessions(): Promise<SessionSummary[]>
-      renameSession(claudeSessionId: string, title: string): Promise<void>
+      setDescription(sessionId: string, description: string): Promise<void>
       getChatLog(sessionId: string): Promise<unknown[]>
       getArtifacts(sessionId: string): Promise<ArtifactList>
       sendMessage(sessionId: string, prompt: string): void

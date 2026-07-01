@@ -16,7 +16,7 @@ import {
   runTurnInFolder,
   createSession,
   listSessions,
-  renameSessionTitle,
+  updateSessionDescription,
   hydrateSessionFromDisk,
   listLatestArtifacts,
 } from './claudeRunner'
@@ -216,29 +216,23 @@ test('listSessions returns [] for a sessions root that does not exist yet', asyn
   expect(summaries).toEqual([])
 })
 
-test('renameSessionTitle updates the display name listSessions returns', async () => {
+test('updateSessionDescription changes the description listSessions returns', async () => {
   sessionsRootTmpDir = await mkdtemp(path.join(os.tmpdir(), 'open-test-root-'))
   const templateDir = path.join(
     import.meta.dir,
     '../../assets/session-template',
   )
 
-  const { sessionId, sessionDir } = await createSession(
-    templateDir,
-    sessionsRootTmpDir,
-  )
+  const { sessionId } = await createSession(templateDir, sessionsRootTmpDir, {
+    description: 'first label',
+  })
 
-  await runTurnInFolder(sessionDir, 1, 'Hello!', () => {}, sessionId)
-
-  const metadata = JSON.parse(
-    await readFile(path.join(sessionDir, 'metadata.json'), 'utf-8'),
-  )
-  await renameSessionTitle(metadata.claude_session_id, 'My renamed session')
+  await updateSessionDescription(sessionsRootTmpDir, sessionId, 'edited label')
 
   const summaries = await listSessions(sessionsRootTmpDir)
   const summary = summaries.find((s) => s.sessionId === sessionId)
-  expect(summary?.displayName).toBe('My renamed session')
-}, 30_000)
+  expect(summary?.description).toBe('edited label')
+})
 
 test('createSession honors a custom sessionId and stored description', async () => {
   sessionsRootTmpDir = await mkdtemp(path.join(os.tmpdir(), 'open-test-root-'))
@@ -256,8 +250,20 @@ test('createSession honors a custom sessionId and stored description', async () 
   const summaries = await listSessions(sessionsRootTmpDir)
   const summary = summaries.find((s) => s.sessionId === 'my-custom-session')
   expect(summary?.description).toBe('Checkout flow smoke test')
-  // No SDK title yet (no turns), so the description is the display name.
-  expect(summary?.displayName).toBe('Checkout flow smoke test')
+})
+
+test('a session created with no description exposes an empty one (renderer shows the date)', async () => {
+  sessionsRootTmpDir = await mkdtemp(path.join(os.tmpdir(), 'open-test-root-'))
+  const templateDir = path.join(
+    import.meta.dir,
+    '../../assets/session-template',
+  )
+
+  const { sessionId } = await createSession(templateDir, sessionsRootTmpDir)
+
+  const summaries = await listSessions(sessionsRootTmpDir)
+  const summary = summaries.find((s) => s.sessionId === sessionId)
+  expect(summary?.description).toBe('')
 })
 
 async function expectRejection(
