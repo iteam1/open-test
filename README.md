@@ -6,7 +6,7 @@
 
 **Develop**
 
-- [ ] Design (~4h)
+- [x] Design (~4h)
 - [ ] Implement (~4h)
 - [ ] Test (~2h)
 
@@ -30,4 +30,6 @@
 - [Bun](https://bun.com/) — fast JavaScript runtime and package manager
 - [Claude Code](https://claude.com/product/claude-code) — AI coding assistant used during development
 - [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-typescript) - The Claude Agent SDK enables you to programmatically build AI agents with Claude Code's capabilities
+- [Agent SDK reference - Python](https://code.claude.com/docs/en/agent-sdk/python#quick-comparison)
+- [Claude Skills](https://github.com/anthropics/skills)
 - [Claude-mem](https://docs.claude-mem.ai/architecture/overview) - Architecture of Claude Mem
