@@ -49,7 +49,7 @@ test(
     )
     await createSessionFolder('test-session', templateDir, sessionTmpDir)
 
-    await runTurn(sessionTmpDir)
+    await runTurn(sessionTmpDir, 'Hello!', () => {})
 
     const slug = sessionTmpDir.replace(/\//g, '-')
     const projectDir = path.join(os.homedir(), '.claude', 'projects', slug)

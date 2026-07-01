@@ -38,13 +38,13 @@ export async function createSessionFolder(
 }
 
 /**
- * The first message sent to Claude when a session starts. Internal to
- * runTurn — nothing outside this file should call it directly.
+ * The message sent to Claude for this turn. Internal to runTurn — nothing
+ * outside this file should call it directly.
  */
-async function* messages(): AsyncGenerator<SDKUserMessage> {
+async function* messages(prompt: string): AsyncGenerator<SDKUserMessage> {
   yield {
     type: 'user',
-    message: { role: 'user', content: 'Hello!' },
+    message: { role: 'user', content: prompt },
     parent_tool_use_id: null,
   }
 }
@@ -52,14 +52,19 @@ async function* messages(): AsyncGenerator<SDKUserMessage> {
 /**
  * Pre-warms a Claude Agent SDK subprocess against sessionDir (so it picks up
  * that folder's .claude/, CLAUDE.md, .mcp.json automatically per design.md),
- * then sends the first message and streams the reply. Call this only after
- * createSessionFolder has already built sessionDir.
+ * then sends prompt and streams the reply, calling onMessage for every
+ * message received. Call this only after createSessionFolder has already
+ * built sessionDir.
  */
-export async function runTurn(sessionDir: string) {
+export async function runTurn(
+  sessionDir: string,
+  prompt: string,
+  onMessage: (message: unknown) => void,
+) {
   const warmQuery = await startup({ options: { cwd: sessionDir } })
-  const result = warmQuery.query(messages())
+  const result = warmQuery.query(messages(prompt))
 
   for await (const message of result) {
-    console.log(message)
+    onMessage(message)
   }
 }

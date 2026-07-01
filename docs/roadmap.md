@@ -60,7 +60,7 @@ Tasks 1.2-1.6 are throwaway scripts in `scratch/`, not app code — the goal is 
 - **2.2** [x] Wire 1.2-1.5's mechanism with `cwd` set to the session folder; `startup()` pre-warms it
   Test: after running, `~/.claude/projects/<slugified-path>/` exists with a matching `.jsonl` — confirms the "bonus for free" claim from `overview.md` for real
 
-- **2.3** [ ] Wire 1.6's fake-chunk IPC channel to real streamed reply chunks from 2.2
+- **2.3** [x] Wire 1.6's fake-chunk IPC channel to real streamed reply chunks from 2.2
   Test: type a prompt in a minimal chat input, see Claude's real reply stream in live
 
 - **2.4** [ ] Session status in memory: `idle` → `running` on push — also creates `output/turn-<n>/` for the new turn (`n` = count of user messages pushed so far, including this one) before the message goes in — back to `idle` on reply completion; status exposed to renderer over the same IPC channel. A push arriving while status is `running` is rejected, not queued or forwarded — the design (`design.md`'s state diagram) already assumes pushes only happen from `idle`, and 1.5 found what goes wrong when that's not enforced: unpaced pushes into an already-running stream merge into one turn instead of landing as two

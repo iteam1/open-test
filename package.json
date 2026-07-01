@@ -5,7 +5,7 @@
   "type": "module",
   "main": "dist/main/index.js",
   "scripts": {
-    "dev": "bun build src/main/index.ts --outdir dist/main --target=node --external electron && electron dist/main/index.js",
+    "dev": "bun build src/main/index.ts --outdir dist/main --target=node --external electron && bun build src/main/preload.ts --outfile dist/main/preload.cjs --target=node --format=cjs --external electron && electron .",
     "format": "prettier --write .",
     "lint": "eslint ."
   },

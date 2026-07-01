@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+  <head>
+    <title>open-test</title>
+  </head>
+  <body>
+    <pre id="output"></pre>
+    <form id="prompt-form">
+      <input id="prompt-input" type="text" autocomplete="off" />
+      <button type="submit">Send</button>
+    </form>
+    <script>
+      const output = document.getElementById('output')
+      const form = document.getElementById('prompt-form')
+      const input = document.getElementById('prompt-input')
+
+      window.api.onChunk((sessionId, message) => {
+        output.textContent += JSON.stringify(message) + '\n'
+      })
+
+      form.addEventListener('submit', (event) => {
+        event.preventDefault()
+        window.api.sendMessage(input.value)
+        input.value = ''
+      })
+    </script>
+  </body>
+</html>
