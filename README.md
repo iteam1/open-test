@@ -1,6 +1,6 @@
 # open-test
 
-*Make your work testable!*
+_Make your work testable!_
 
 ## Prerequisites
 
@@ -29,7 +29,6 @@ Requires [Bun](https://bun.com/) and [uv](https://github.com/astral-sh/uv). Chec
 - [ ] Setup (~2h)
 - [ ] Test (~2h)
 
-
 ## Related to
 
 - [open-design](https://github.com/nexu-io/open-design) — 🎨 Local-first, open-source Claude Design alternative.
@@ -39,5 +38,5 @@ Requires [Bun](https://bun.com/) and [uv](https://github.com/astral-sh/uv). Chec
 - [Claude Code](https://claude.com/product/claude-code) — AI coding assistant used during development
 - [Claude Agent SDK](https://github.com/anthropics/claude-agent-sdk-typescript) - The Claude Agent SDK enables you to programmatically build AI agents with Claude Code's capabilities
 - [Agent SDK reference - Python](https://code.claude.com/docs/en/agent-sdk/python#quick-comparison) - Complete API reference for the Python Agent SDK, including all functions, types, and classes.
-- [Claude Skills](https://github.com/anthropics/skills) - Public repository for Agent Skills 
+- [Claude Skills](https://github.com/anthropics/skills) - Public repository for Agent Skills
 - [Claude-mem](https://docs.claude-mem.ai/architecture/overview) - Architecture of Claude Mem

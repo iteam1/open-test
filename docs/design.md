@@ -4,13 +4,13 @@ Stack: Bun, TypeScript, Electron, Playwright (Agent CLI for live execution; Libr
 
 ## Main components
 
-| Component | Responsibility |
-|---|---|
-| Electron shell | Main process (Node/Bun) + renderer: two screens — Dashboard (sessions by status) and Session view (chat + artifacts) |
-| Session manager | Create/resume/kill sessions, own the folder layout, bind `cwd`. Creating a session copies `assets/session-template/*` (`.claude/`, `CLAUDE.md`, `.mcp.json`) into it wholesale — Claude Code's own `cwd`-based discovery picks it all up, no custom wiring. Tracks status (`running`/`idle`/`closed`). |
-| Agent runner | Wraps Claude Agent SDK `query()` in streaming-input mode — one persistent connection per session. When the fragment flag is on: merges the in-process fragment server into `options.mcpServers` — this can't live in the copied `.mcp.json`, since it's a JS object, not a file. Off, Claude just drives tests live every turn. |
-| Fragment tools | In-process `createSdkMcpServer()` bundling `match_fragments`/`run_fragment`/`save_fragment` (see `contribute.md`) — reusable Playwright scripts, verified before caching. Strip the flag and the app behaves exactly as if this component didn't exist. |
-| Usage tracker | Read turns via the SDK's `getSessionMessages()`, hand-parse each assistant message's `usage` object (the SDK leaves it untyped), compute cost, write `usage.json` |
+| Component       | Responsibility                                                                                                                                                                                                                                                                                                                  |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Electron shell  | Main process (Node/Bun) + renderer: two screens — Dashboard (sessions by status) and Session view (chat + artifacts)                                                                                                                                                                                                            |
+| Session manager | Create/resume/kill sessions, own the folder layout, bind `cwd`. Creating a session copies `assets/session-template/*` (`.claude/`, `CLAUDE.md`, `.mcp.json`) into it wholesale — Claude Code's own `cwd`-based discovery picks it all up, no custom wiring. Tracks status (`running`/`idle`/`closed`).                          |
+| Agent runner    | Wraps Claude Agent SDK `query()` in streaming-input mode — one persistent connection per session. When the fragment flag is on: merges the in-process fragment server into `options.mcpServers` — this can't live in the copied `.mcp.json`, since it's a JS object, not a file. Off, Claude just drives tests live every turn. |
+| Fragment tools  | In-process `createSdkMcpServer()` bundling `match_fragments`/`run_fragment`/`save_fragment` (see `contribute.md`) — reusable Playwright scripts, verified before caching. Strip the flag and the app behaves exactly as if this component didn't exist.                                                                         |
+| Usage tracker   | Read turns via the SDK's `getSessionMessages()`, hand-parse each assistant message's `usage` object (the SDK leaves it untyped), compute cost, write `usage.json`                                                                                                                                                               |
 
 ## Code structure
 
@@ -58,7 +58,7 @@ open-test/
 
 ```ts
 interface Session {
-  sessionId: string        // folder-naming key; stable, not user-renamed
+  sessionId: string // folder-naming key; stable, not user-renamed
   claudeSessionId: string
   createdAt: string
   status: 'running' | 'idle' | 'closed'
@@ -72,8 +72,8 @@ interface Session {
   // moment the app isn't the one updating it (e.g. a crash while idle would
   // leave idle on disk forever). No live connection in memory = closed,
   // always, regardless of what a stale file might say.
-  path: string              // absolute, == cwd for query(). Derived from root +
-                            // sessionId, not itself persisted.
+  path: string // absolute, == cwd for query(). Derived from root +
+  // sessionId, not itself persisted.
 }
 
 interface TurnUsage {
@@ -87,10 +87,10 @@ interface TurnUsage {
   cacheWrite5mTokens: number
   cacheWrite1hTokens: number
   costUsd: number
-  usedFragmentTool: boolean  // did this turn's transcript contain a
-                             // run_fragment/save_fragment call — cheap to
-                             // derive while parsing, otherwise unrecoverable
-                             // later without re-scanning the transcript
+  usedFragmentTool: boolean // did this turn's transcript contain a
+  // run_fragment/save_fragment call — cheap to
+  // derive while parsing, otherwise unrecoverable
+  // later without re-scanning the transcript
 }
 ```
 
@@ -108,9 +108,9 @@ interface FragmentMeta {
   use_count: number
   last_used_at: string | null
   consecutive_failures: number
-  needs_reverification: boolean  // set when a dependency's content hash
-                                  // changes, or after 3 consecutive_failures;
-                                  // cleared by a passing save_fragment re-run
+  needs_reverification: boolean // set when a dependency's content hash
+  // changes, or after 3 consecutive_failures;
+  // cleared by a passing save_fragment re-run
 }
 
 interface FragmentParam {

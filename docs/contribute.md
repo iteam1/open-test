@@ -2,19 +2,19 @@
 
 ## Idea
 
-*Re-build some Playwright artifacts (script + semantics) that are flexible (allow arguments, ...), reusable, and assemblable.*
+_Re-build some Playwright artifacts (script + semantics) that are flexible (allow arguments, ...), reusable, and assemblable._
 
-*We can assemble them to become a bigger script.*
+_We can assemble them to become a bigger script._
 
-*Only fall back to the agent + Playwright Agent CLI (not MCP — Claude Code has shell access, Agent CLI does the same job for ~4x less cost) when there's nothing to reuse.*
+_Only fall back to the agent + Playwright Agent CLI (not MCP — Claude Code has shell access, Agent CLI does the same job for ~4x less cost) when there's nothing to reuse._
 
-*Before accumulating a script into the reusable store, confirm it actually worked — not just that it ran once. A flaky or lucky single run shouldn't pollute the library.*
+_Before accumulating a script into the reusable store, confirm it actually worked — not just that it ran once. A flaky or lucky single run shouldn't pollute the library._
 
-*After manual work + experiments, do the lesson-learned step: generate something reusable for the next test, and accumulate it in a central place. At minimum, it must be reusable for the next turn of the same test.*
+_After manual work + experiments, do the lesson-learned step: generate something reusable for the next test, and accumulate it in a central place. At minimum, it must be reusable for the next turn of the same test._
 
-*Use scripts instead of manual work — it reduces cost and speeds things up.*
+_Use scripts instead of manual work — it reduces cost and speeds things up._
 
-*The `./sessions/` folder, with all its previous executions, is a gold mine. We must find a way to reuse its history — the intermediate outputs, the lessons learned, the generated scripts, etc.*
+_The `./sessions/` folder, with all its previous executions, is a gold mine. We must find a way to reuse its history — the intermediate outputs, the lessons learned, the generated scripts, etc._
 
 ## Questions
 
@@ -35,7 +35,7 @@ Each fragment is one markdown file: YAML frontmatter for matching and params, pr
 name: login-flow
 description: Logs into example.com
 scope: specific
-url_pattern: "https://example.com/login*"
+url_pattern: 'https://example.com/login*'
 tags: [auth]
 params:
   - name: username
@@ -62,7 +62,7 @@ Use this when a test needs to be logged in first.
 
 ```js
 export async function run(page, { username, password, remember_me = false }) {
-  await expect(page).toHaveURL(/login/)   // precondition — fails fast if stale
+  await expect(page).toHaveURL(/login/) // precondition — fails fast if stale
   await page.fill('#username', username)
   await page.fill('#password', password)
   if (remember_me) await page.check('#remember-me')
@@ -75,23 +75,23 @@ Each part of the file plays a different role. The frontmatter is what `match_fra
 
 **Three tools, defined with `tool()` and bundled into one `createSdkMcpServer({ name: 'fragments', tools: [...] })`:**
 
-| Tool | What it does | Design notes |
-|---|---|---|
-| `match_fragments(url, tags?)` | Filters candidates by URL and tags (skipping any marked `needs_reverification`), ranks them by `use_count`/`last_used_at`, and returns a capped shortlist (about 5-10) with each candidate's description and code. | The filtering and ranking are deterministic, with no LLM involved. Picking one from the shortlist is Claude's own call, based on reading each candidate's description and code. |
-| `run_fragment(name, args)` | Extracts the cached `.js` file by content hash, executes it, and returns the result. | A failed run increments `consecutive_failures`; a successful one resets that counter and bumps `use_count`/`last_used_at`. It runs in-process, in the same event loop as the app, so there are no cross-process races to worry about. |
-| `save_fragment(name, description, scope, url_pattern, tags, params, code)` | Opens its own fresh browser — separate from the shared per-session context `run_fragment` uses — navigates to `url_pattern`, and runs the code once from a cold start; nothing carried over from whatever Claude was doing when it found this flow. It only writes the `.md` file if that cold run passes; otherwise it rejects the save. | This is a mechanical check, not a hope that Claude followed the skill correctly. It also catches a fragment that only works because some *other*, undeclared fragment happened to run first — a cold start correctly rejects that case. If a fragment's dependency changes (its content hash changes), every fragment that imports it is marked `needs_reverification` (see the `FragmentMeta` field in `design.md`). |
+| Tool                                                                       | What it does                                                                                                                                                                                                                                                                                                                              | Design notes                                                                                                                                                                                                                                                                                                                                                                                                          |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `match_fragments(url, tags?)`                                              | Filters candidates by URL and tags (skipping any marked `needs_reverification`), ranks them by `use_count`/`last_used_at`, and returns a capped shortlist (about 5-10) with each candidate's description and code.                                                                                                                        | The filtering and ranking are deterministic, with no LLM involved. Picking one from the shortlist is Claude's own call, based on reading each candidate's description and code.                                                                                                                                                                                                                                       |
+| `run_fragment(name, args)`                                                 | Extracts the cached `.js` file by content hash, executes it, and returns the result.                                                                                                                                                                                                                                                      | A failed run increments `consecutive_failures`; a successful one resets that counter and bumps `use_count`/`last_used_at`. It runs in-process, in the same event loop as the app, so there are no cross-process races to worry about.                                                                                                                                                                                 |
+| `save_fragment(name, description, scope, url_pattern, tags, params, code)` | Opens its own fresh browser — separate from the shared per-session context `run_fragment` uses — navigates to `url_pattern`, and runs the code once from a cold start; nothing carried over from whatever Claude was doing when it found this flow. It only writes the `.md` file if that cold run passes; otherwise it rejects the save. | This is a mechanical check, not a hope that Claude followed the skill correctly. It also catches a fragment that only works because some _other_, undeclared fragment happened to run first — a cold start correctly rejects that case. If a fragment's dependency changes (its content hash changes), every fragment that imports it is marked `needs_reverification` (see the `FragmentMeta` field in `design.md`). |
 
 **Three skills that use them:**
 
-| Skill | What it does |
-|---|---|
-| `fragment-lookup` | Before driving a test live, it calls `match_fragments` first; if something fits, it runs that fragment instead. |
-| `fragment-learn` | After a live run succeeds, it calls `save_fragment` with what just happened — the tool verifies the result before persisting it, so Claude doesn't have to. |
-| `fragment-combine` | It runs each relevant fragment in sequence with `run_fragment`; if the whole sequence passes, it also saves the composite as a new fragment. |
+| Skill              | What it does                                                                                                                                                |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `fragment-lookup`  | Before driving a test live, it calls `match_fragments` first; if something fits, it runs that fragment instead.                                             |
+| `fragment-learn`   | After a live run succeeds, it calls `save_fragment` with what just happened — the tool verifies the result before persisting it, so Claude doesn't have to. |
+| `fragment-combine` | It runs each relevant fragment in sequence with `run_fragment`; if the whole sequence passes, it also saves the composite as a new fragment.                |
 
 All `run_fragment` calls in a session — whether for a single fragment or a composite — share one browser context. That context is just a variable held in the app's own process now, so there's no IPC boundary to cross between calls. If an attempt is discarded or fails, the app closes and reopens that context before the next call, so stale partial state never leaks into what comes next.
 
-The live Agent CLI fallback runs in a *different* process and does **not** share that context: if any step fails, the app discards the attempt and runs the whole thing live from scratch. That's only safe for idempotent/read-heavy flows — for flows with real side effects, restarting from scratch runs into the same clean-state/test-data gap noted below.
+The live Agent CLI fallback runs in a _different_ process and does **not** share that context: if any step fails, the app discards the attempt and runs the whole thing live from scratch. That's only safe for idempotent/read-heavy flows — for flows with real side effects, restarting from scratch runs into the same clean-state/test-data gap noted below.
 
 Main workflow (per turn):
 
@@ -120,17 +120,20 @@ flowchart LR
 ```
 
 **Avoid overhead:**
+
 - Only turn recurring steps into fragments — one-off actions aren't worth the overhead.
 - Track `consecutive_failures` and retire a fragment after 3 in a row, until it's re-verified.
 - Keep the shortlist ranked by `use_count`/`last_used_at` and capped — this is what keeps per-turn cost flat as the library grows.
 - Before saving a new fragment, check for an existing near-match and update that one instead of creating a duplicate.
 
 **App scope:**
+
 - A `scope: specific` fragment targets one app with a precise `url_pattern`, so it's allowed to use brittle CSS selectors.
 - A `scope: common` fragment has a broad or empty `url_pattern` and is matched by tags instead — it must use role-based selectors so it generalizes across apps.
 - When both match, specific always outranks common.
 
 **Assembling for regression:**
+
 - The import convention `import { run as login } from 'fragment:login-flow'` uses the `fragment:` specifier to tell the in-process extractor to resolve by fragment name, not by file path.
 - `fragment-combine` runs the sequence live first, sharing the browser context described above, then saves the composite with `save_fragment` once it passes — the same verify gate as any other fragment.
 - Composites that get run often graduate to `@playwright/test`, which brings free trace.zip files, retries, and parallel runs.
